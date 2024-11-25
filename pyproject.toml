@@ -8,7 +8,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "durabletask"
+name = "durabletask-dapr"
 version = "0.1.1-alpha.1"
 description = "A Durable Task Client SDK for Python"
 keywords = [
@@ -29,8 +29,8 @@ dependencies = [
 ]
 
 [project.urls]
-repository = "https://github.com/microsoft/durabletask-python"
-changelog = "https://github.com/microsoft/durabletask-python/blob/main/CHANGELOG.md"
+repository = "https://github.com/dapr/durabletask-python"
+changelog = "https://github.com/dapr/durabletask-python/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["durabletask", "durabletask.*"]
