@@ -4,12 +4,12 @@
 # For more information on pyproject.toml, see https://peps.python.org/pep-0621/
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "durabletask-dapr"
-version = "0.1.1-alpha.1"
+dynamic = ["version"]
 description = "A Durable Task Client SDK for Python"
 keywords = [
     "durable",
@@ -34,6 +34,10 @@ changelog = "https://github.com/dapr/durabletask-python/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["durabletask", "durabletask.*"]
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
