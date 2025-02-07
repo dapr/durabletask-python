@@ -95,6 +95,11 @@ class TaskHubSidecarServiceStub(object):
                 request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.EntityBatchResult.SerializeToString,
                 response_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.CompleteTaskResponse.FromString,
                 )
+        self.StreamInstanceHistory = channel.unary_stream(
+                '/TaskHubSidecarService/StreamInstanceHistory',
+                request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.StreamInstanceHistoryRequest.SerializeToString,
+                response_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.HistoryChunk.FromString,
+                )
         self.CreateTaskHub = channel.unary_unary(
                 '/TaskHubSidecarService/CreateTaskHub',
                 request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.CreateTaskHubRequest.SerializeToString,
@@ -238,6 +243,13 @@ class TaskHubSidecarServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamInstanceHistory(self, request, context):
+        """Gets the history of an orchestration instance as a stream of events.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def CreateTaskHub(self, request, context):
         """Deletes and Creates the necessary resources for the orchestration service and the instance store
         """
@@ -362,6 +374,11 @@ def add_TaskHubSidecarServiceServicer_to_server(servicer, server):
                     servicer.CompleteEntityTask,
                     request_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.EntityBatchResult.FromString,
                     response_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.CompleteTaskResponse.SerializeToString,
+            ),
+            'StreamInstanceHistory': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamInstanceHistory,
+                    request_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.StreamInstanceHistoryRequest.FromString,
+                    response_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.HistoryChunk.SerializeToString,
             ),
             'CreateTaskHub': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateTaskHub,
@@ -672,6 +689,23 @@ class TaskHubSidecarService(object):
         return grpc.experimental.unary_unary(request, target, '/TaskHubSidecarService/CompleteEntityTask',
             durabletask_dot_internal_dot_orchestrator__service__pb2.EntityBatchResult.SerializeToString,
             durabletask_dot_internal_dot_orchestrator__service__pb2.CompleteTaskResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def StreamInstanceHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(request, target, '/TaskHubSidecarService/StreamInstanceHistory',
+            durabletask_dot_internal_dot_orchestrator__service__pb2.StreamInstanceHistoryRequest.SerializeToString,
+            durabletask_dot_internal_dot_orchestrator__service__pb2.HistoryChunk.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
