@@ -26,6 +26,11 @@ class CreateOrchestrationAction(int, metaclass=_enum_type_wrapper.EnumTypeWrappe
     ERROR: _ClassVar[CreateOrchestrationAction]
     IGNORE: _ClassVar[CreateOrchestrationAction]
     TERMINATE: _ClassVar[CreateOrchestrationAction]
+
+class WorkerCapability(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    WORKER_CAPABILITY_UNSPECIFIED: _ClassVar[WorkerCapability]
+    WORKER_CAPABILITY_HISTORY_STREAMING: _ClassVar[WorkerCapability]
 ORCHESTRATION_STATUS_RUNNING: OrchestrationStatus
 ORCHESTRATION_STATUS_COMPLETED: OrchestrationStatus
 ORCHESTRATION_STATUS_CONTINUED_AS_NEW: OrchestrationStatus
@@ -37,6 +42,8 @@ ORCHESTRATION_STATUS_SUSPENDED: OrchestrationStatus
 ERROR: CreateOrchestrationAction
 IGNORE: CreateOrchestrationAction
 TERMINATE: CreateOrchestrationAction
+WORKER_CAPABILITY_UNSPECIFIED: WorkerCapability
+WORKER_CAPABILITY_HISTORY_STREAMING: WorkerCapability
 
 class OrchestrationInstance(_message.Message):
     __slots__ = ("instanceId", "executionId")
@@ -278,8 +285,84 @@ class ExecutionResumedEvent(_message.Message):
     input: _wrappers_pb2.StringValue
     def __init__(self, input: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
 
+class EntityOperationSignaledEvent(_message.Message):
+    __slots__ = ("requestId", "operation", "scheduledTime", "input", "targetInstanceId")
+    REQUESTID_FIELD_NUMBER: _ClassVar[int]
+    OPERATION_FIELD_NUMBER: _ClassVar[int]
+    SCHEDULEDTIME_FIELD_NUMBER: _ClassVar[int]
+    INPUT_FIELD_NUMBER: _ClassVar[int]
+    TARGETINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    requestId: str
+    operation: str
+    scheduledTime: _timestamp_pb2.Timestamp
+    input: _wrappers_pb2.StringValue
+    targetInstanceId: _wrappers_pb2.StringValue
+    def __init__(self, requestId: _Optional[str] = ..., operation: _Optional[str] = ..., scheduledTime: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., input: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., targetInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
+
+class EntityOperationCalledEvent(_message.Message):
+    __slots__ = ("requestId", "operation", "scheduledTime", "input", "parentInstanceId", "parentExecutionId", "targetInstanceId")
+    REQUESTID_FIELD_NUMBER: _ClassVar[int]
+    OPERATION_FIELD_NUMBER: _ClassVar[int]
+    SCHEDULEDTIME_FIELD_NUMBER: _ClassVar[int]
+    INPUT_FIELD_NUMBER: _ClassVar[int]
+    PARENTINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    PARENTEXECUTIONID_FIELD_NUMBER: _ClassVar[int]
+    TARGETINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    requestId: str
+    operation: str
+    scheduledTime: _timestamp_pb2.Timestamp
+    input: _wrappers_pb2.StringValue
+    parentInstanceId: _wrappers_pb2.StringValue
+    parentExecutionId: _wrappers_pb2.StringValue
+    targetInstanceId: _wrappers_pb2.StringValue
+    def __init__(self, requestId: _Optional[str] = ..., operation: _Optional[str] = ..., scheduledTime: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., input: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., parentInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., parentExecutionId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., targetInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
+
+class EntityLockRequestedEvent(_message.Message):
+    __slots__ = ("criticalSectionId", "lockSet", "position", "parentInstanceId")
+    CRITICALSECTIONID_FIELD_NUMBER: _ClassVar[int]
+    LOCKSET_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    PARENTINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    criticalSectionId: str
+    lockSet: _containers.RepeatedScalarFieldContainer[str]
+    position: int
+    parentInstanceId: _wrappers_pb2.StringValue
+    def __init__(self, criticalSectionId: _Optional[str] = ..., lockSet: _Optional[_Iterable[str]] = ..., position: _Optional[int] = ..., parentInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
+
+class EntityOperationCompletedEvent(_message.Message):
+    __slots__ = ("requestId", "output")
+    REQUESTID_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    requestId: str
+    output: _wrappers_pb2.StringValue
+    def __init__(self, requestId: _Optional[str] = ..., output: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
+
+class EntityOperationFailedEvent(_message.Message):
+    __slots__ = ("requestId", "failureDetails")
+    REQUESTID_FIELD_NUMBER: _ClassVar[int]
+    FAILUREDETAILS_FIELD_NUMBER: _ClassVar[int]
+    requestId: str
+    failureDetails: TaskFailureDetails
+    def __init__(self, requestId: _Optional[str] = ..., failureDetails: _Optional[_Union[TaskFailureDetails, _Mapping]] = ...) -> None: ...
+
+class EntityUnlockSentEvent(_message.Message):
+    __slots__ = ("criticalSectionId", "parentInstanceId", "targetInstanceId")
+    CRITICALSECTIONID_FIELD_NUMBER: _ClassVar[int]
+    PARENTINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    TARGETINSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    criticalSectionId: str
+    parentInstanceId: _wrappers_pb2.StringValue
+    targetInstanceId: _wrappers_pb2.StringValue
+    def __init__(self, criticalSectionId: _Optional[str] = ..., parentInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., targetInstanceId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ...) -> None: ...
+
+class EntityLockGrantedEvent(_message.Message):
+    __slots__ = ("criticalSectionId",)
+    CRITICALSECTIONID_FIELD_NUMBER: _ClassVar[int]
+    criticalSectionId: str
+    def __init__(self, criticalSectionId: _Optional[str] = ...) -> None: ...
+
 class HistoryEvent(_message.Message):
-    __slots__ = ("eventId", "timestamp", "executionStarted", "executionCompleted", "executionTerminated", "taskScheduled", "taskCompleted", "taskFailed", "subOrchestrationInstanceCreated", "subOrchestrationInstanceCompleted", "subOrchestrationInstanceFailed", "timerCreated", "timerFired", "orchestratorStarted", "orchestratorCompleted", "eventSent", "eventRaised", "genericEvent", "historyState", "continueAsNew", "executionSuspended", "executionResumed")
+    __slots__ = ("eventId", "timestamp", "executionStarted", "executionCompleted", "executionTerminated", "taskScheduled", "taskCompleted", "taskFailed", "subOrchestrationInstanceCreated", "subOrchestrationInstanceCompleted", "subOrchestrationInstanceFailed", "timerCreated", "timerFired", "orchestratorStarted", "orchestratorCompleted", "eventSent", "eventRaised", "genericEvent", "historyState", "continueAsNew", "executionSuspended", "executionResumed", "entityOperationSignaled", "entityOperationCalled", "entityOperationCompleted", "entityOperationFailed", "entityLockRequested", "entityLockGranted", "entityUnlockSent")
     EVENTID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     EXECUTIONSTARTED_FIELD_NUMBER: _ClassVar[int]
@@ -302,6 +385,13 @@ class HistoryEvent(_message.Message):
     CONTINUEASNEW_FIELD_NUMBER: _ClassVar[int]
     EXECUTIONSUSPENDED_FIELD_NUMBER: _ClassVar[int]
     EXECUTIONRESUMED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYOPERATIONSIGNALED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYOPERATIONCALLED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYOPERATIONCOMPLETED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYOPERATIONFAILED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYLOCKREQUESTED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYLOCKGRANTED_FIELD_NUMBER: _ClassVar[int]
+    ENTITYUNLOCKSENT_FIELD_NUMBER: _ClassVar[int]
     eventId: int
     timestamp: _timestamp_pb2.Timestamp
     executionStarted: ExecutionStartedEvent
@@ -324,7 +414,14 @@ class HistoryEvent(_message.Message):
     continueAsNew: ContinueAsNewEvent
     executionSuspended: ExecutionSuspendedEvent
     executionResumed: ExecutionResumedEvent
-    def __init__(self, eventId: _Optional[int] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., executionStarted: _Optional[_Union[ExecutionStartedEvent, _Mapping]] = ..., executionCompleted: _Optional[_Union[ExecutionCompletedEvent, _Mapping]] = ..., executionTerminated: _Optional[_Union[ExecutionTerminatedEvent, _Mapping]] = ..., taskScheduled: _Optional[_Union[TaskScheduledEvent, _Mapping]] = ..., taskCompleted: _Optional[_Union[TaskCompletedEvent, _Mapping]] = ..., taskFailed: _Optional[_Union[TaskFailedEvent, _Mapping]] = ..., subOrchestrationInstanceCreated: _Optional[_Union[SubOrchestrationInstanceCreatedEvent, _Mapping]] = ..., subOrchestrationInstanceCompleted: _Optional[_Union[SubOrchestrationInstanceCompletedEvent, _Mapping]] = ..., subOrchestrationInstanceFailed: _Optional[_Union[SubOrchestrationInstanceFailedEvent, _Mapping]] = ..., timerCreated: _Optional[_Union[TimerCreatedEvent, _Mapping]] = ..., timerFired: _Optional[_Union[TimerFiredEvent, _Mapping]] = ..., orchestratorStarted: _Optional[_Union[OrchestratorStartedEvent, _Mapping]] = ..., orchestratorCompleted: _Optional[_Union[OrchestratorCompletedEvent, _Mapping]] = ..., eventSent: _Optional[_Union[EventSentEvent, _Mapping]] = ..., eventRaised: _Optional[_Union[EventRaisedEvent, _Mapping]] = ..., genericEvent: _Optional[_Union[GenericEvent, _Mapping]] = ..., historyState: _Optional[_Union[HistoryStateEvent, _Mapping]] = ..., continueAsNew: _Optional[_Union[ContinueAsNewEvent, _Mapping]] = ..., executionSuspended: _Optional[_Union[ExecutionSuspendedEvent, _Mapping]] = ..., executionResumed: _Optional[_Union[ExecutionResumedEvent, _Mapping]] = ...) -> None: ...
+    entityOperationSignaled: EntityOperationSignaledEvent
+    entityOperationCalled: EntityOperationCalledEvent
+    entityOperationCompleted: EntityOperationCompletedEvent
+    entityOperationFailed: EntityOperationFailedEvent
+    entityLockRequested: EntityLockRequestedEvent
+    entityLockGranted: EntityLockGrantedEvent
+    entityUnlockSent: EntityUnlockSentEvent
+    def __init__(self, eventId: _Optional[int] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., executionStarted: _Optional[_Union[ExecutionStartedEvent, _Mapping]] = ..., executionCompleted: _Optional[_Union[ExecutionCompletedEvent, _Mapping]] = ..., executionTerminated: _Optional[_Union[ExecutionTerminatedEvent, _Mapping]] = ..., taskScheduled: _Optional[_Union[TaskScheduledEvent, _Mapping]] = ..., taskCompleted: _Optional[_Union[TaskCompletedEvent, _Mapping]] = ..., taskFailed: _Optional[_Union[TaskFailedEvent, _Mapping]] = ..., subOrchestrationInstanceCreated: _Optional[_Union[SubOrchestrationInstanceCreatedEvent, _Mapping]] = ..., subOrchestrationInstanceCompleted: _Optional[_Union[SubOrchestrationInstanceCompletedEvent, _Mapping]] = ..., subOrchestrationInstanceFailed: _Optional[_Union[SubOrchestrationInstanceFailedEvent, _Mapping]] = ..., timerCreated: _Optional[_Union[TimerCreatedEvent, _Mapping]] = ..., timerFired: _Optional[_Union[TimerFiredEvent, _Mapping]] = ..., orchestratorStarted: _Optional[_Union[OrchestratorStartedEvent, _Mapping]] = ..., orchestratorCompleted: _Optional[_Union[OrchestratorCompletedEvent, _Mapping]] = ..., eventSent: _Optional[_Union[EventSentEvent, _Mapping]] = ..., eventRaised: _Optional[_Union[EventRaisedEvent, _Mapping]] = ..., genericEvent: _Optional[_Union[GenericEvent, _Mapping]] = ..., historyState: _Optional[_Union[HistoryStateEvent, _Mapping]] = ..., continueAsNew: _Optional[_Union[ContinueAsNewEvent, _Mapping]] = ..., executionSuspended: _Optional[_Union[ExecutionSuspendedEvent, _Mapping]] = ..., executionResumed: _Optional[_Union[ExecutionResumedEvent, _Mapping]] = ..., entityOperationSignaled: _Optional[_Union[EntityOperationSignaledEvent, _Mapping]] = ..., entityOperationCalled: _Optional[_Union[EntityOperationCalledEvent, _Mapping]] = ..., entityOperationCompleted: _Optional[_Union[EntityOperationCompletedEvent, _Mapping]] = ..., entityOperationFailed: _Optional[_Union[EntityOperationFailedEvent, _Mapping]] = ..., entityLockRequested: _Optional[_Union[EntityLockRequestedEvent, _Mapping]] = ..., entityLockGranted: _Optional[_Union[EntityLockGrantedEvent, _Mapping]] = ..., entityUnlockSent: _Optional[_Union[EntityUnlockSentEvent, _Mapping]] = ...) -> None: ...
 
 class ScheduleTaskAction(_message.Message):
     __slots__ = ("name", "version", "input")
@@ -409,30 +506,34 @@ class OrchestratorAction(_message.Message):
     def __init__(self, id: _Optional[int] = ..., scheduleTask: _Optional[_Union[ScheduleTaskAction, _Mapping]] = ..., createSubOrchestration: _Optional[_Union[CreateSubOrchestrationAction, _Mapping]] = ..., createTimer: _Optional[_Union[CreateTimerAction, _Mapping]] = ..., sendEvent: _Optional[_Union[SendEventAction, _Mapping]] = ..., completeOrchestration: _Optional[_Union[CompleteOrchestrationAction, _Mapping]] = ..., terminateOrchestration: _Optional[_Union[TerminateOrchestrationAction, _Mapping]] = ...) -> None: ...
 
 class OrchestratorRequest(_message.Message):
-    __slots__ = ("instanceId", "executionId", "pastEvents", "newEvents", "entityParameters")
+    __slots__ = ("instanceId", "executionId", "pastEvents", "newEvents", "entityParameters", "requiresHistoryStreaming")
     INSTANCEID_FIELD_NUMBER: _ClassVar[int]
     EXECUTIONID_FIELD_NUMBER: _ClassVar[int]
     PASTEVENTS_FIELD_NUMBER: _ClassVar[int]
     NEWEVENTS_FIELD_NUMBER: _ClassVar[int]
     ENTITYPARAMETERS_FIELD_NUMBER: _ClassVar[int]
+    REQUIRESHISTORYSTREAMING_FIELD_NUMBER: _ClassVar[int]
     instanceId: str
     executionId: _wrappers_pb2.StringValue
     pastEvents: _containers.RepeatedCompositeFieldContainer[HistoryEvent]
     newEvents: _containers.RepeatedCompositeFieldContainer[HistoryEvent]
     entityParameters: OrchestratorEntityParameters
-    def __init__(self, instanceId: _Optional[str] = ..., executionId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., pastEvents: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ..., newEvents: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ..., entityParameters: _Optional[_Union[OrchestratorEntityParameters, _Mapping]] = ...) -> None: ...
+    requiresHistoryStreaming: bool
+    def __init__(self, instanceId: _Optional[str] = ..., executionId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., pastEvents: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ..., newEvents: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ..., entityParameters: _Optional[_Union[OrchestratorEntityParameters, _Mapping]] = ..., requiresHistoryStreaming: bool = ...) -> None: ...
 
 class OrchestratorResponse(_message.Message):
-    __slots__ = ("instanceId", "actions", "customStatus", "completionToken")
+    __slots__ = ("instanceId", "actions", "customStatus", "completionToken", "numEventsProcessed")
     INSTANCEID_FIELD_NUMBER: _ClassVar[int]
     ACTIONS_FIELD_NUMBER: _ClassVar[int]
     CUSTOMSTATUS_FIELD_NUMBER: _ClassVar[int]
     COMPLETIONTOKEN_FIELD_NUMBER: _ClassVar[int]
+    NUMEVENTSPROCESSED_FIELD_NUMBER: _ClassVar[int]
     instanceId: str
     actions: _containers.RepeatedCompositeFieldContainer[OrchestratorAction]
     customStatus: _wrappers_pb2.StringValue
     completionToken: str
-    def __init__(self, instanceId: _Optional[str] = ..., actions: _Optional[_Iterable[_Union[OrchestratorAction, _Mapping]]] = ..., customStatus: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., completionToken: _Optional[str] = ...) -> None: ...
+    numEventsProcessed: _wrappers_pb2.Int32Value
+    def __init__(self, instanceId: _Optional[str] = ..., actions: _Optional[_Iterable[_Union[OrchestratorAction, _Mapping]]] = ..., customStatus: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., completionToken: _Optional[str] = ..., numEventsProcessed: _Optional[_Union[_wrappers_pb2.Int32Value, _Mapping]] = ...) -> None: ...
 
 class CreateInstanceRequest(_message.Message):
     __slots__ = ("instanceId", "name", "version", "input", "scheduledStartTimestamp", "orchestrationIdReusePolicy", "executionId", "tags")
@@ -793,6 +894,18 @@ class EntityBatchResult(_message.Message):
     failureDetails: TaskFailureDetails
     def __init__(self, results: _Optional[_Iterable[_Union[OperationResult, _Mapping]]] = ..., actions: _Optional[_Iterable[_Union[OperationAction, _Mapping]]] = ..., entityState: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., failureDetails: _Optional[_Union[TaskFailureDetails, _Mapping]] = ...) -> None: ...
 
+class EntityRequest(_message.Message):
+    __slots__ = ("instanceId", "executionId", "entityState", "operationRequests")
+    INSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    EXECUTIONID_FIELD_NUMBER: _ClassVar[int]
+    ENTITYSTATE_FIELD_NUMBER: _ClassVar[int]
+    OPERATIONREQUESTS_FIELD_NUMBER: _ClassVar[int]
+    instanceId: str
+    executionId: str
+    entityState: _wrappers_pb2.StringValue
+    operationRequests: _containers.RepeatedCompositeFieldContainer[HistoryEvent]
+    def __init__(self, instanceId: _Optional[str] = ..., executionId: _Optional[str] = ..., entityState: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., operationRequests: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ...) -> None: ...
+
 class OperationRequest(_message.Message):
     __slots__ = ("operation", "requestId", "input")
     OPERATION_FIELD_NUMBER: _ClassVar[int]
@@ -860,26 +973,32 @@ class StartNewOrchestrationAction(_message.Message):
     def __init__(self, instanceId: _Optional[str] = ..., name: _Optional[str] = ..., version: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., input: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., scheduledTime: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class GetWorkItemsRequest(_message.Message):
-    __slots__ = ("maxConcurrentOrchestrationWorkItems", "maxConcurrentActivityWorkItems")
+    __slots__ = ("maxConcurrentOrchestrationWorkItems", "maxConcurrentActivityWorkItems", "maxConcurrentEntityWorkItems", "capabilities")
     MAXCONCURRENTORCHESTRATIONWORKITEMS_FIELD_NUMBER: _ClassVar[int]
     MAXCONCURRENTACTIVITYWORKITEMS_FIELD_NUMBER: _ClassVar[int]
+    MAXCONCURRENTENTITYWORKITEMS_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
     maxConcurrentOrchestrationWorkItems: int
     maxConcurrentActivityWorkItems: int
-    def __init__(self, maxConcurrentOrchestrationWorkItems: _Optional[int] = ..., maxConcurrentActivityWorkItems: _Optional[int] = ...) -> None: ...
+    maxConcurrentEntityWorkItems: int
+    capabilities: _containers.RepeatedScalarFieldContainer[WorkerCapability]
+    def __init__(self, maxConcurrentOrchestrationWorkItems: _Optional[int] = ..., maxConcurrentActivityWorkItems: _Optional[int] = ..., maxConcurrentEntityWorkItems: _Optional[int] = ..., capabilities: _Optional[_Iterable[_Union[WorkerCapability, str]]] = ...) -> None: ...
 
 class WorkItem(_message.Message):
-    __slots__ = ("orchestratorRequest", "activityRequest", "entityRequest", "healthPing", "completionToken")
+    __slots__ = ("orchestratorRequest", "activityRequest", "entityRequest", "healthPing", "entityRequestV2", "completionToken")
     ORCHESTRATORREQUEST_FIELD_NUMBER: _ClassVar[int]
     ACTIVITYREQUEST_FIELD_NUMBER: _ClassVar[int]
     ENTITYREQUEST_FIELD_NUMBER: _ClassVar[int]
     HEALTHPING_FIELD_NUMBER: _ClassVar[int]
+    ENTITYREQUESTV2_FIELD_NUMBER: _ClassVar[int]
     COMPLETIONTOKEN_FIELD_NUMBER: _ClassVar[int]
     orchestratorRequest: OrchestratorRequest
     activityRequest: ActivityRequest
     entityRequest: EntityBatchRequest
     healthPing: HealthPing
+    entityRequestV2: EntityRequest
     completionToken: str
-    def __init__(self, orchestratorRequest: _Optional[_Union[OrchestratorRequest, _Mapping]] = ..., activityRequest: _Optional[_Union[ActivityRequest, _Mapping]] = ..., entityRequest: _Optional[_Union[EntityBatchRequest, _Mapping]] = ..., healthPing: _Optional[_Union[HealthPing, _Mapping]] = ..., completionToken: _Optional[str] = ...) -> None: ...
+    def __init__(self, orchestratorRequest: _Optional[_Union[OrchestratorRequest, _Mapping]] = ..., activityRequest: _Optional[_Union[ActivityRequest, _Mapping]] = ..., entityRequest: _Optional[_Union[EntityBatchRequest, _Mapping]] = ..., healthPing: _Optional[_Union[HealthPing, _Mapping]] = ..., entityRequestV2: _Optional[_Union[EntityRequest, _Mapping]] = ..., completionToken: _Optional[str] = ...) -> None: ...
 
 class CompleteTaskResponse(_message.Message):
     __slots__ = ()
@@ -888,3 +1007,19 @@ class CompleteTaskResponse(_message.Message):
 class HealthPing(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
+
+class StreamInstanceHistoryRequest(_message.Message):
+    __slots__ = ("instanceId", "executionId", "forWorkItemProcessing")
+    INSTANCEID_FIELD_NUMBER: _ClassVar[int]
+    EXECUTIONID_FIELD_NUMBER: _ClassVar[int]
+    FORWORKITEMPROCESSING_FIELD_NUMBER: _ClassVar[int]
+    instanceId: str
+    executionId: _wrappers_pb2.StringValue
+    forWorkItemProcessing: bool
+    def __init__(self, instanceId: _Optional[str] = ..., executionId: _Optional[_Union[_wrappers_pb2.StringValue, _Mapping]] = ..., forWorkItemProcessing: bool = ...) -> None: ...
+
+class HistoryChunk(_message.Message):
+    __slots__ = ("events",)
+    EVENTS_FIELD_NUMBER: _ClassVar[int]
+    events: _containers.RepeatedCompositeFieldContainer[HistoryEvent]
+    def __init__(self, events: _Optional[_Iterable[_Union[HistoryEvent, _Mapping]]] = ...) -> None: ...
