@@ -44,7 +44,7 @@ jobs:
     # Install and run the durabletask-go sidecar for running e2e tests
     - name: Pytest e2e tests
       run: |
-        go install github.com/microsoft/durabletask-go@main
+        go install github.com/dapr/durabletask-go@main
         durabletask-go --port 4001 &
         pytest -m "e2e" --verbose
   publish:
