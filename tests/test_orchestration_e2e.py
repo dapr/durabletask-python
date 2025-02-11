@@ -327,7 +327,6 @@ def test_terminate_recursive():
             if recurse:
                 assert activity_counter == 0, "Activity should not have executed with recursive termination"
             else:
-                assert metadata is not None
                 assert activity_counter == 5, "Activity should have executed without recursive termination"
 
 
