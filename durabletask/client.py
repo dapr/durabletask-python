@@ -129,11 +129,13 @@ class TaskHubGrpcClient:
 
     def wait_for_orchestration_start(self, instance_id: str, *,
                                      fetch_payloads: bool = False,
-                                     timeout: int = 60) -> Optional[OrchestrationState]:
+                                     timeout: int = 0) -> Optional[OrchestrationState]:
         req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
-            self._logger.info(f"Waiting up to {timeout}s for instance '{instance_id}' to start.")
-            res: pb.GetInstanceResponse = self._stub.WaitForInstanceStart(req, timeout=timeout)
+            grpc_timeout = None if timeout == 0 else timeout
+            self._logger.info(
+                f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to start.")
+            res: pb.GetInstanceResponse = self._stub.WaitForInstanceStart(req, timeout=grpc_timeout)
             return new_orchestration_state(req.instanceId, res)
         except grpc.RpcError as rpc_error:
             if rpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # type: ignore
@@ -144,11 +146,13 @@ class TaskHubGrpcClient:
 
     def wait_for_orchestration_completion(self, instance_id: str, *,
                                           fetch_payloads: bool = True,
-                                          timeout: int = 60) -> Optional[OrchestrationState]:
+                                          timeout: int = 0) -> Optional[OrchestrationState]:
         req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
-            self._logger.info(f"Waiting {timeout}s for instance '{instance_id}' to complete.")
-            res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(req, timeout=timeout)
+            grpc_timeout = None if timeout == 0 else timeout
+            self._logger.info(
+                f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to complete.")
+            res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(req, timeout=grpc_timeout)
             state = new_orchestration_state(req.instanceId, res)
             if not state:
                 return None
