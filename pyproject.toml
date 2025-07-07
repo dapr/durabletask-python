@@ -44,6 +44,7 @@ local_scheme = "no-local-version"
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
     "e2e: mark a test as an end-to-end test that requires a running sidecar"
 ]
