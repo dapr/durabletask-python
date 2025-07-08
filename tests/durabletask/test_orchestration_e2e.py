@@ -278,6 +278,7 @@ def test_terminate():
         assert state.runtime_status == client.OrchestrationStatus.TERMINATED
         assert state.serialized_output == json.dumps("some reason for termination")
 
+
 def test_terminate_recursive():
     thread_lock = threading.Lock()
     activity_counter = 0
@@ -330,7 +331,6 @@ def test_terminate_recursive():
                 assert activity_counter == 5, "Activity should have executed without recursive termination"
 
 
-
 def test_continue_as_new():
     all_results = []
 
@@ -338,7 +338,7 @@ def test_continue_as_new():
         result = yield ctx.wait_for_external_event("my_event")
         if not ctx.is_replaying:
             # NOTE: Real orchestrations should never interact with nonlocal variables like this.
-            nonlocal all_results
+            nonlocal all_results  # noqa: F824
             all_results.append(result)
 
         if len(all_results) <= 4:
@@ -461,6 +461,7 @@ def test_retry_timeout():
         assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 4
+
 
 def test_custom_status():
 

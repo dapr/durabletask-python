@@ -333,7 +333,7 @@ class RetryableTask(CompletableTask[T]):
     """A task that can be retried according to a retry policy."""
 
     def __init__(self, retry_policy: RetryPolicy, action: pb.OrchestratorAction,
-                 start_time:datetime, is_sub_orch: bool) -> None:
+                 start_time: datetime, is_sub_orch: bool) -> None:
         super().__init__()
         self._action = action
         self._retry_policy = retry_policy
@@ -343,7 +343,7 @@ class RetryableTask(CompletableTask[T]):
 
     def increment_attempt_count(self) -> None:
         self._attempt_count += 1
-    
+
     def compute_next_delay(self) -> Optional[timedelta]:
         if self._attempt_count >= self._retry_policy.max_number_of_attempts:
             return None
@@ -351,7 +351,7 @@ class RetryableTask(CompletableTask[T]):
         retry_expiration: datetime = datetime.max
         if self._retry_policy.retry_timeout is not None and self._retry_policy.retry_timeout != datetime.max:
             retry_expiration = self._start_time + self._retry_policy.retry_timeout
-        
+
         if self._retry_policy.backoff_coefficient is None:
             backoff_coefficient = 1.0
         else:
