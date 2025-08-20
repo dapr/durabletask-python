@@ -506,8 +506,8 @@ def test_async_suspend_and_resume_e2e():
         val = await ctx.wait_for_external_event("x")
         return val
 
-    # Ensure we connect to the running sidecar on 50001
-    os.environ["DURABLETASK_GRPC_ENDPOINT"] = "localhost:50001"
+    # Ensure we connect to the running sidecar on 4001
+    os.environ["DURABLETASK_GRPC_ENDPOINT"] = "localhost:4001"
 
     with worker.TaskHubGrpcWorker() as w:
         w.add_async_orchestrator(orch, name="async_suspend_resume")

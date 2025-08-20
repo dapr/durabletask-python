@@ -26,7 +26,7 @@ async def async_fanout_fanin(ctx, _):
 
 
 def main():
-    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:50001")
+    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
 
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(get_work_items)
@@ -47,5 +47,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

@@ -195,14 +195,14 @@ make test-e2e
 
 The SDK connects to a Durable Task sidecar. By default it uses `localhost:4001`. You can override via environment variables (checked in order):
 
-- `DURABLETASK_GRPC_ENDPOINT` (e.g., `localhost:50001`, `grpcs://host:443`)
+- `DURABLETASK_GRPC_ENDPOINT` (e.g., `localhost:4001`, `grpcs://host:443`)
 - `DURABLETASK_GRPC_HOST` and `DURABLETASK_GRPC_PORT`
 - `TASKHUB_GRPC_ENDPOINT` (legacy)
 
 Example:
 
 ```sh
-export DURABLETASK_GRPC_ENDPOINT=localhost:50001
+export DURABLETASK_GRPC_ENDPOINT=localhost:4001
 ```
 
 ### Async authoring compatibility

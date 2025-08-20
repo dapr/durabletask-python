@@ -31,7 +31,7 @@ def get_default_host_address() -> str:
     Honors environment variables if present; otherwise defaults to localhost:4001.
 
     Supported environment variables (checked in order):
-    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:50001", "grpcs://host:443")
+    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
     - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
     - TASKHUB_GRPC_ENDPOINT (legacy/alt name)
     """

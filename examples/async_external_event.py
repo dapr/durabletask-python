@@ -11,7 +11,7 @@ async def await_event(ctx, _):
 
 
 def main():
-    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:50001")
+    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
 
     with TaskHubGrpcWorker() as worker:
         worker.add_async_orchestrator(await_event, name="await_event", sandbox_mode="off")

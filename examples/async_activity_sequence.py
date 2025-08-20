@@ -18,7 +18,7 @@ async def async_sequence(ctx, word: str):
 
 def main():
     # Point to your sidecar, or set DURABLETASK_GRPC_ENDPOINT in env
-    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:50001")
+    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
 
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(to_upper)
