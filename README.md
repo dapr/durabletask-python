@@ -191,6 +191,94 @@ To run the E2E tests, run the following command from the project root:
 make test-e2e
 ```
 
+### Configuration
+
+The SDK connects to a Durable Task sidecar. By default it uses `localhost:4001`. You can override via environment variables (checked in order):
+
+- `DURABLETASK_GRPC_ENDPOINT` (e.g., `localhost:50001`, `grpcs://host:443`)
+- `DURABLETASK_GRPC_HOST` and `DURABLETASK_GRPC_PORT`
+- `TASKHUB_GRPC_ENDPOINT` (legacy)
+
+Example:
+
+```sh
+export DURABLETASK_GRPC_ENDPOINT=localhost:50001
+```
+
+### Async authoring compatibility
+
+You can author orchestrators with `async def` using `add_async_orchestrator`, which provides awaitables for activities, timers, external events, and when_all/any:
+
+```python
+from durabletask.worker import TaskHubGrpcWorker
+
+async def my_orch(ctx, input):
+    r1 = await ctx.activity("act1", input=input)
+    await ctx.sleep(1)
+    r2 = await ctx.activity("act2", input=r1)
+    return r2
+
+with TaskHubGrpcWorker() as worker:
+    worker.add_async_orchestrator(my_orch, name="my_orch", sandbox_mode="off")
+```
+
+Optional sandbox mode (`best_effort` or `strict`) patches `asyncio.sleep`, `random`, `uuid.uuid4`, and `time.time` within the workflow step to deterministic equivalents. This is best-effort and not a correctness guarantee.
+
+In `strict` mode, `asyncio.create_task` is blocked inside workflows to preserve determinism and will raise a `RuntimeError` if used.
+
+#### Async patterns
+
+- Activities:
+```python
+result = await ctx.activity("process", input={"x": 1})
+```
+
+- Timers:
+```python
+await ctx.sleep(1.5)  # seconds or timedelta
+```
+
+- External events:
+```python
+val = await ctx.wait_for_external_event("approval")
+```
+
+- Concurrency:
+```python
+t1 = ctx.activity("a"); t2 = ctx.activity("b")
+await ctx.when_all([t1, t2])
+winner = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(5)])
+```
+
+- Sub-orchestrations:
+```python
+out = await ctx.sub_orchestrator("child", input=payload)
+```
+
+- Deterministic utilities:
+```python
+now = ctx.now(); rid = ctx.random().random(); uid = ctx.uuid4()
+```
+
+#### Worker readiness
+
+When starting a worker and scheduling immediately, wait for the connection to the sidecar to be established:
+
+```python
+with TaskHubGrpcWorker() as worker:
+    worker.add_async_orchestrator(my_orch, name="my_orch")
+    worker.start()
+    worker.wait_for_ready(timeout=5)
+    # Now safe to schedule
+```
+
+#### Suspension & termination
+
+- `ctx.is_suspended` reflects suspension state during replay/processing.
+- Suspend pauses progress without raising inside async orchestrators.
+- Terminate completes with `TERMINATED` status; use client APIs to terminate/resume.
+ - Only new events are buffered while suspended; replay events continue to apply to rebuild local state deterministically.
+
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a

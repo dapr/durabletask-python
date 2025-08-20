@@ -27,6 +27,7 @@ def test_empty_orchestration():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         c = client.TaskHubGrpcClient()
         id = c.schedule_new_orchestration(empty_orchestrator)
@@ -61,6 +62,7 @@ def test_activity_sequence():
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(sequence, input=1)
@@ -107,6 +109,7 @@ def test_activity_error_handling():
         w.add_activity(throw)
         w.add_activity(increment_counter)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
@@ -150,6 +153,7 @@ def test_sub_orchestration_fan_out():
         w.add_orchestrator(orchestrator_child)
         w.add_orchestrator(parent_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
@@ -172,6 +176,7 @@ def test_wait_for_multiple_external_events():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
@@ -201,6 +206,7 @@ def test_wait_for_external_event_timeout(raise_event: bool):
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
@@ -226,6 +232,7 @@ def test_suspend_and_resume():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator)
@@ -265,6 +272,7 @@ def test_terminate():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator)
@@ -307,6 +315,7 @@ def test_terminate_recursive():
             w.add_orchestrator(orchestrator_child)
             w.add_orchestrator(parent_orchestrator)
             w.start()
+            w.wait_for_ready(timeout=10)
 
             task_hub_client = client.TaskHubGrpcClient()
             instance_id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=5)
@@ -350,6 +359,7 @@ def test_continue_as_new():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=0)
@@ -410,6 +420,7 @@ def test_retry_policies():
         w.add_orchestrator(child_orchestrator_with_retry)
         w.add_activity(throw_activity_with_retry)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
@@ -450,6 +461,7 @@ def test_retry_timeout():
         w.add_orchestrator(mock_orchestrator)
         w.add_activity(throw_activity)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(mock_orchestrator)
@@ -485,3 +497,66 @@ def test_custom_status():
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status == "\"foobaz\""
+
+
+def test_async_suspend_and_resume_e2e():
+    import os
+
+    async def orch(ctx, _):
+        val = await ctx.wait_for_external_event("x")
+        return val
+
+    # Ensure we connect to the running sidecar on 50001
+    os.environ["DURABLETASK_GRPC_ENDPOINT"] = "localhost:50001"
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_async_orchestrator(orch, name="async_suspend_resume")
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        c = client.TaskHubGrpcClient()
+        id = c.schedule_new_orchestration("async_suspend_resume")
+        state = c.wait_for_orchestration_start(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == client.OrchestrationStatus.RUNNING
+
+        # Suspend then ensure it goes to SUSPENDED
+        c.suspend_orchestration(id)
+        while True:
+            st = c.get_orchestration_state(id)
+            assert st is not None
+            if st.runtime_status == client.OrchestrationStatus.SUSPENDED:
+                break
+            time.sleep(0.1)
+
+        # Raise event while suspended, then resume and expect completion
+        c.raise_orchestration_event(id, "x", data=42)
+        c.resume_orchestration(id)
+        state = c.wait_for_orchestration_completion(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.serialized_output == json.dumps(42)
+
+
+def test_async_sub_orchestrator_e2e():
+    async def child(ctx, x: int):
+        return x + 1
+
+    async def parent(ctx, x: int):
+        y = await ctx.sub_orchestrator(child, input=x)
+        return y * 2
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_async_orchestrator(child, name="child")
+        w.add_async_orchestrator(parent, name="parent")
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        c = client.TaskHubGrpcClient()
+        id = c.schedule_new_orchestration("parent", input=3)
+        state = c.wait_for_orchestration_completion(id, timeout=30)
+
+    assert state is not None
+    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.failure_details is None
+    assert state.serialized_output == json.dumps(8)

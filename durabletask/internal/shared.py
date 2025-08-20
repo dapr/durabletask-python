@@ -4,6 +4,7 @@
 import dataclasses
 import json
 import logging
+import os
 from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
@@ -25,6 +26,27 @@ INSECURE_PROTOCOLS = ["http://", "grpc://"]
 
 
 def get_default_host_address() -> str:
+    """Resolve the default Durable Task sidecar address.
+
+    Honors environment variables if present; otherwise defaults to localhost:4001.
+
+    Supported environment variables (checked in order):
+    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:50001", "grpcs://host:443")
+    - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
+    - TASKHUB_GRPC_ENDPOINT (legacy/alt name)
+    """
+    # Full endpoint overrides
+    endpoint = os.environ.get("DURABLETASK_GRPC_ENDPOINT") or os.environ.get("TASKHUB_GRPC_ENDPOINT")
+    if endpoint:
+        return endpoint
+
+    # Host/port split overrides
+    host = os.environ.get("DURABLETASK_GRPC_HOST")
+    port = os.environ.get("DURABLETASK_GRPC_PORT")
+    if host and port:
+        return f"{host}:{port}"
+
+    # Default
     return "localhost:4001"
 
 

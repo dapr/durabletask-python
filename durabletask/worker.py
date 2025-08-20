@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Generator, Optional, Sequence, TypeVar, Union
+from typing import Any, Callable, Generator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2
@@ -20,6 +20,8 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import task
+from durabletask.asyncio_compat import (AsyncWorkflowContext,
+                                        CoroutineOrchestratorRunner)
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -95,6 +97,44 @@ class _Registry:
             raise ValueError(f"A '{name}' orchestrator already exists.")
 
         self.orchestrators[name] = fn
+
+    # Internal helper: register async orchestrators directly on the registry.
+    # Primarily for unit tests and direct executor usage. For production, prefer
+    # using TaskHubGrpcWorker.add_async_orchestrator(), which wraps and registers
+    # on this registry under the hood.
+    def add_async_orchestrator(self, fn: Callable[[AsyncWorkflowContext, Any], Any], *,
+                               name: Optional[str] = None,
+                               sandbox_mode: str = "off") -> str:
+        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+
+        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+            # Mark as async-wrapped to enable async-specific behaviors (e.g., cancellation mapping)
+            try:
+                setattr(ctx, "_async_wrapped", True)
+            except Exception:
+                pass
+            async_ctx = AsyncWorkflowContext(ctx)
+            gen = runner.to_generator(async_ctx, input_data)
+            result = None
+            while True:
+                try:
+                    task_obj = gen.send(result)
+                except StopIteration as stop:
+                    return stop.value
+                try:
+                    result = yield task_obj
+                except Exception as e:
+                    try:
+                        result = gen.throw(e)
+                    except StopIteration as stop:
+                        return stop.value
+
+        if name is None:
+            name = task.get_name(fn) if hasattr(fn, "__name__") else None
+        if not name:
+            raise ValueError("A non-empty orchestrator name is required.")
+        self.add_named_orchestrator(name, generator_orchestrator)
+        return name
 
     def get_orchestrator(self, name: str) -> Optional[task.Orchestrator]:
         return self.orchestrators.get(name)
@@ -210,7 +250,7 @@ class TaskHubGrpcWorker:
             activity function.
     """
 
-    _response_stream: Optional[grpc.Future] = None
+    _response_stream: Optional[object] = None
     _interceptors: Optional[list[shared.ClientInterceptor]] = None
 
     def __init__(
@@ -251,6 +291,8 @@ class TaskHubGrpcWorker:
             self._interceptors = None
 
         self._async_worker_manager = _AsyncWorkerManager(self._concurrency_options)
+        # Readiness flag set once the worker has an active stream to the sidecar
+        self._ready = Event()
 
     @property
     def concurrency_options(self) -> ConcurrencyOptions:
@@ -270,6 +312,51 @@ class TaskHubGrpcWorker:
                 "Orchestrators cannot be added while the worker is running."
             )
         return self._registry.add_orchestrator(fn)
+
+    # Async orchestrator support (opt-in)
+    def add_async_orchestrator(self, fn: Callable[[AsyncWorkflowContext, Any], Any], *,
+                               name: Optional[str] = None,
+                               sandbox_mode: str = "off") -> str:
+        """Registers an async orchestrator by wrapping it with the coroutine driver.
+
+        The provided coroutine function must only await awaitables created from
+        `AsyncWorkflowContext` (activities, timers, external events, when_any/all).
+        """
+        if self._is_running:
+            raise RuntimeError(
+                "Orchestrators cannot be added while the worker is running."
+            )
+
+        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+
+        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+            # Mark as async-wrapped to enable async-specific behaviors (e.g., cancellation mapping)
+            try:
+                setattr(ctx, "_async_wrapped", True)
+            except Exception:
+                pass
+            async_ctx = AsyncWorkflowContext(ctx)
+            gen = runner.to_generator(async_ctx, input_data)
+            result = None
+            while True:
+                try:
+                    task_obj = gen.send(result)
+                except StopIteration as stop:
+                    return stop.value
+                try:
+                    result = yield task_obj
+                except Exception as e:
+                    try:
+                        result = gen.throw(e)
+                    except StopIteration as stop:
+                        return stop.value
+
+        if name is None:
+            name = task.get_name(fn) if hasattr(fn, "__name__") else None
+        if name is None:
+            raise ValueError("A non-empty orchestrator name is required.")
+        self._registry.add_named_orchestrator(name, generator_orchestrator)
+        return name
 
     def add_activity(self, fn: task.Activity) -> str:
         """Registers an activity function with the worker."""
@@ -331,7 +418,9 @@ class TaskHubGrpcWorker:
             # Cancel the response stream first to signal the reader thread to stop
             if self._response_stream is not None:
                 try:
-                    self._response_stream.cancel()
+                    cancel = getattr(self._response_stream, "cancel", None)
+                    if callable(cancel):
+                        cancel()
                 except Exception:
                     pass
                 self._response_stream = None
@@ -354,6 +443,8 @@ class TaskHubGrpcWorker:
                     pass
             current_channel = None
             current_stub = None
+            # No longer ready if connection is gone
+            self._ready.clear()
 
         def should_invalidate_connection(rpc_error):
             error_code = rpc_error.code()  # type: ignore
@@ -393,6 +484,8 @@ class TaskHubGrpcWorker:
                 self._logger.info(
                     f"Successfully connected to {self._host_address}. Waiting for work items..."
                 )
+                # Signal readiness once stream is established
+                self._ready.set()
 
                 # Use a thread to read from the blocking gRPC stream and forward to asyncio
                 import queue
@@ -401,7 +494,10 @@ class TaskHubGrpcWorker:
 
                 def stream_reader():
                     try:
-                        for work_item in self._response_stream:
+                        stream = self._response_stream
+                        if stream is None:
+                            return
+                        for work_item in stream:  # type: ignore
                             work_item_queue.put(work_item)
                     except Exception as e:
                         work_item_queue.put(e)
@@ -491,12 +587,22 @@ class TaskHubGrpcWorker:
         self._logger.info("Stopping gRPC worker...")
         self._shutdown.set()
         if self._response_stream is not None:
-            self._response_stream.cancel()
+            cancel = getattr(self._response_stream, "cancel", None)
+            if callable(cancel):
+                cancel()
         if self._runLoop is not None:
             self._runLoop.join(timeout=30)
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")
         self._is_running = False
+        self._ready.clear()
+
+    def wait_for_ready(self, timeout: Optional[float] = None) -> bool:
+        """Block until the worker has an active connection to the sidecar.
+
+        Returns True if the worker became ready within the timeout; otherwise False.
+        """
+        return self._ready.wait(timeout)
 
     def _execute_orchestrator(
             self,
@@ -531,6 +637,24 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteOrchestratorTask(res)
+        except grpc.RpcError as rpc_error:  # type: ignore
+            # During shutdown or if the instance was terminated, the channel may be closed
+            # or the instance may no longer be recognized by the sidecar. Treat these as benign.
+            code = rpc_error.code()  # type: ignore
+            details = str(rpc_error)
+            benign = (
+                code in {grpc.StatusCode.CANCELLED, grpc.StatusCode.UNAVAILABLE}
+                or "unknown instance ID/task ID combo" in details
+                or "Channel closed" in details
+            )
+            if self._shutdown.is_set() or benign:
+                self._logger.debug(
+                    f"Ignoring orchestrator completion delivery error during shutdown/benign condition: {rpc_error}"
+                )
+            else:
+                self._logger.exception(
+                    f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {rpc_error}"
+                )
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
@@ -564,6 +688,26 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteActivityTask(res)
+        except grpc.RpcError as rpc_error:  # type: ignore
+            # Treat common shutdown/termination races as benign to avoid noisy logs
+            code = rpc_error.code()  # type: ignore
+            details = str(rpc_error)
+            benign = (
+                code in {grpc.StatusCode.CANCELLED, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.UNKNOWN}
+                and (
+                    "unknown instance ID/task ID combo" in details
+                    or "Channel closed" in details
+                    or "Locally cancelled by application" in details
+                )
+            )
+            if self._shutdown.is_set() or benign:
+                self._logger.debug(
+                    f"Ignoring activity completion delivery error during shutdown/benign condition: {rpc_error}"
+                )
+            else:
+                self._logger.exception(
+                    f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {rpc_error}"
+                )
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
@@ -577,6 +721,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
     def __init__(self, instance_id: str):
         self._generator = None
         self._is_replaying = True
+        self._is_suspended = False
         self._is_complete = False
         self._result = None
         self._pending_actions: dict[int, pb.OrchestratorAction] = {}
@@ -720,6 +865,10 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
     @property
     def is_replaying(self) -> bool:
         return self._is_replaying
+
+    @property
+    def is_suspended(self) -> bool:
+        return self._is_suspended
 
     def set_custom_status(self, custom_status: Any) -> None:
         self._encoded_custom_status = (
@@ -943,7 +1092,7 @@ class _OrchestrationExecutor:
     def process_event(
             self, ctx: _RuntimeOrchestrationContext, event: pb.HistoryEvent
     ) -> None:
-        if self._is_suspended and _is_suspendable(event):
+        if self._is_suspended and _is_suspendable(event) and not ctx.is_replaying:
             # We are suspended, so we need to buffer this event until we are resumed
             self._suspended_events.append(event)
             return
@@ -1193,10 +1342,12 @@ class _OrchestrationExecutor:
                 if not self._is_suspended and not ctx.is_replaying:
                     self._logger.info(f"{ctx.instance_id}: Execution suspended.")
                 self._is_suspended = True
+                ctx._is_suspended = True
             elif event.HasField("executionResumed") and self._is_suspended:
                 if not ctx.is_replaying:
                     self._logger.info(f"{ctx.instance_id}: Resuming execution.")
                 self._is_suspended = False
+                ctx._is_suspended = False
                 for e in self._suspended_events:
                     self.process_event(ctx, e)
                 self._suspended_events = []
