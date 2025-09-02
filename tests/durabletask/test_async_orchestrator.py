@@ -238,6 +238,52 @@ def test_async_two_activities_no_timer():
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
 
 
+def test_async_gather_happy_path_and_return_exceptions():
+    async def orch(ctx, _):
+        a = ctx.activity("ok", input=1)
+        b = ctx.activity("boom", input=2)
+        c = ctx.activity("ok", input=3)
+        vals = await ctx.gather(a, b, c, return_exceptions=True)
+        return vals
+
+    def ok(_, x):
+        return x
+
+    def boom(_, __):
+        raise RuntimeError("fail!")
+
+    registry = _Registry()
+    name = registry.add_async_orchestrator(orch)  # type: ignore[attr-defined]
+    an_ok = registry.add_activity(ok)
+    an_boom = registry.add_activity(boom)
+    exec = _OrchestrationExecutor(registry, logging.getLogger("tests"))
+
+    # start -> schedule three activities
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+    ]
+    res = exec.execute(TEST_INSTANCE_ID, [], new_events)
+    assert len(res.actions) == 3 and all(a.HasField("scheduleTask") for a in res.actions)
+
+    # mark scheduled
+    old_events = new_events + [
+        helpers.new_task_scheduled_event(1, an_ok),
+        helpers.new_task_scheduled_event(2, an_boom),
+        helpers.new_task_scheduled_event(3, an_ok),
+    ]
+
+    # complete ok(1), fail boom(2), complete ok(3)
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_task_completed_event(1, encoded_output=json.dumps(1)),
+        helpers.new_task_failed_event(2, RuntimeError("fail!")),
+        helpers.new_task_completed_event(3, encoded_output=json.dumps(3)),
+    ]
+    res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
+    assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
+
+
 def test_async_strict_sandbox_blocks_create_task():
     import asyncio
 

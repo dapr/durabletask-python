@@ -8,8 +8,17 @@ import hashlib
 import time as _time
 import uuid as _uuid
 from datetime import datetime, timedelta
-from typing import (Any, Awaitable, Callable, Generator, Optional, Sequence,
-                    TypeVar, Union, cast)
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generator,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from durabletask import task as dt_task
 
@@ -53,6 +62,15 @@ class AsyncWorkflowContext:
     def when_any(self, awaitables: Sequence["_AwaitableBase[Any]"]) -> "_WhenAnyAwaitable":
         return _WhenAnyAwaitable(awaitables)
 
+    # Gather (asyncio-like)
+    def gather(self, *aws: "_AwaitableBase[Any]", return_exceptions: bool = False) -> "_WhenAllAwaitable":
+        if return_exceptions:
+            wrapped: list[_AwaitableBase[Any]] = [
+                _SwallowExceptionAwaitable(a) for a in aws
+            ]
+            return _WhenAllAwaitable(wrapped)
+        return _WhenAllAwaitable(list(aws))
+
     # Deterministic utilities
     def now(self) -> datetime:
         return self._base_ctx.current_utc_datetime
@@ -70,6 +88,20 @@ class AsyncWorkflowContext:
     @property
     def is_suspended(self) -> bool:
         return getattr(self._base_ctx, "is_suspended", False)
+
+    @property
+    def is_replaying(self) -> bool:
+        return getattr(self._base_ctx, "is_replaying", False)
+
+    @property
+    def instance_id(self) -> str:
+        return getattr(self._base_ctx, "instance_id")
+
+    def set_custom_status(self, status: Any) -> None:
+        self._base_ctx.set_custom_status(status)
+
+    def continue_as_new(self, new_input: Any, *, save_events: bool = False) -> None:
+        self._base_ctx.continue_as_new(new_input, save_events=save_events)
 
     def uuid4(self) -> _uuid.UUID:
         rng = self.random()
@@ -156,6 +188,25 @@ class _WhenAnyAwaitable(_AwaitableBase[dt_task.Task]):
     def _to_durable_task(self) -> dt_task.Task[dt_task.Task]:
         child_tasks = [a._to_durable_task() for a in self._awaitables]
         return dt_task.when_any(child_tasks)
+
+
+class _SwallowExceptionAwaitable(_AwaitableBase[Any]):
+    """Wrapper awaitable that returns exception object instead of raising it."""
+
+    def __init__(self, inner: _AwaitableBase[Any]):
+        self._inner = inner
+
+    def _to_durable_task(self) -> dt_task.Task[Any]:
+        # Delegate to inner to schedule its task
+        return self._inner._to_durable_task()
+
+    def __await__(self):  # type: ignore[override]
+        try:
+            result = yield self._to_durable_task()
+            return result
+        except Exception as e:
+            # Return the exception object instead of propagating
+            return e
 
 
 class CoroutineOrchestratorRunner:
