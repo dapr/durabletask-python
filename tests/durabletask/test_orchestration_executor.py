@@ -1188,3 +1188,156 @@ def get_and_validate_single_complete_orchestration_action(actions: list[pb.Orche
     assert type(actions[0]) is pb.OrchestratorAction
     assert actions[0].HasField("completeOrchestration")
     return actions[0].completeOrchestration
+
+
+def test_activity_non_retryable_default_exception():
+    """If activity fails with NonRetryableError, it should not be retried and orchestration should fail immediately."""
+
+    def dummy_activity(ctx, _):
+        raise task.NonRetryableError("boom")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+                backoff_coefficient=1,
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, task.NonRetryableError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Activity task #1 failed: boom")
+
+
+def test_activity_non_retryable_policy_name():
+    """If policy marks ValueError as non-retryable (by name), fail immediately without retry."""
+
+    def dummy_activity(ctx, _):
+        raise ValueError("boom")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=5,
+                non_retryable_error_types=["ValueError"],
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, ValueError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Activity task #1 failed: boom")
+
+
+def test_sub_orchestration_non_retryable_default_exception():
+    """If sub-orchestrator fails with NonRetryableError, do not retry and fail immediately."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        pass
+
+    def parent(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(
+            child,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+            ),
+        )
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+    parent_name = registry.add_orchestrator(parent)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_sub_orchestration_created_event(1, child_name, "sub-1", encoded_input=None),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_sub_orchestration_failed_event(1, task.NonRetryableError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Sub-orchestration task #1 failed: boom")
+
+
+def test_sub_orchestration_non_retryable_policy_type():
+    """If policy marks ValueError as non-retryable (by class), fail immediately without retry."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        pass
+
+    def parent(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(
+            child,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=5,
+                non_retryable_error_types=[ValueError],
+            ),
+        )
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+    parent_name = registry.add_orchestrator(parent)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_sub_orchestration_created_event(1, child_name, "sub-1", encoded_input=None),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_sub_orchestration_failed_event(1, ValueError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Sub-orchestration task #1 failed: boom")

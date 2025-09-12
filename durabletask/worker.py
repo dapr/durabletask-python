@@ -20,8 +20,7 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import task
-from durabletask.asyncio_compat import (AsyncWorkflowContext,
-                                        CoroutineOrchestratorRunner)
+from durabletask.asyncio_compat import AsyncWorkflowContext, CoroutineOrchestratorRunner
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -763,7 +762,17 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             else:
                 # Resume the generator with the previous result.
                 # This will either return a Task or raise StopIteration if it's done.
-                next_task = self._generator.send(self._previous_task.get_result())
+                try:
+                    _val = self._previous_task.get_result()
+                    import os as _os
+                    if _os.getenv('DAPR_WF_DEBUG') or _os.getenv('DT_DEBUG'):
+                        print(f"[DT] resume send instance={self._instance_id} type={type(_val)} is_none={_val is None}")
+                except Exception as _e:
+                    import os as _os
+                    if _os.getenv('DAPR_WF_DEBUG') or _os.getenv('DT_DEBUG'):
+                        print(f"[DT] resume send error instance={self._instance_id} err={_e}")
+                    raise
+                next_task = self._generator.send(_val)
 
             if not isinstance(next_task, task.Task):
                 raise TypeError("The orchestrator generator yielded a non-Task object")
@@ -1047,6 +1056,7 @@ class _OrchestrationExecutor:
             )
             ctx._is_replaying = True
             for old_event in old_events:
+                self._logger.debug(f"OLD-EVENT: {instance_id}: {old_event}")
                 self.process_event(ctx, old_event)
 
             # Get new actions by executing newly received events into the orchestrator function
@@ -1119,6 +1129,13 @@ class _OrchestrationExecutor:
                 result = fn(
                     ctx, input
                 )  # this does not execute the generator, only creates it
+                try:
+                    from types import GeneratorType as _GenT
+                    import os as _os
+                    if _os.getenv('DAPR_WF_DEBUG') or _os.getenv('DT_DEBUG'):
+                        print(f"[DT] executionStarted orchestrator returned type={type(result)} is_gen={isinstance(result, _GenT)} id={id(result) if isinstance(result, _GenT) else 'n/a'}")
+                except Exception:
+                    pass
                 if isinstance(result, GeneratorType):
                     # Start the orchestrator's generator function
                     ctx.run(result)
@@ -1206,6 +1223,13 @@ class _OrchestrationExecutor:
                 result = None
                 if not ph.is_empty(event.taskCompleted.result):
                     result = shared.from_json(event.taskCompleted.result.value)
+                try:
+                    import os as _os
+                    if _os.getenv('DAPR_WF_DEBUG') or _os.getenv('DT_DEBUG'):
+                        print(f"[DT] taskCompleted decode instance={ctx.instance_id} task_id={task_id} type={type(result)} is_none={result is None}")
+                        print(f"[DT] pending_task_present={activity_task is not None}")
+                except Exception:
+                    pass
                 activity_task.complete(result)
                 ctx.resume()
             elif event.HasField("taskFailed"):
@@ -1221,16 +1245,32 @@ class _OrchestrationExecutor:
 
                 if isinstance(activity_task, task.RetryableTask):
                     if activity_task._retry_policy is not None:
-                        next_delay = activity_task.compute_next_delay()
-                        if next_delay is None:
+                        # Check for non-retryable errors by type name
+                        error_type = event.taskFailed.failureDetails.errorType
+                        policy = activity_task._retry_policy
+                        is_non_retryable = False
+                        if error_type == getattr(task.NonRetryableError, "__name__", "NonRetryableError"):
+                            is_non_retryable = True
+                        elif policy.non_retryable_error_types is not None and error_type in policy.non_retryable_error_types:
+                            is_non_retryable = True
+
+                        if is_non_retryable:
                             activity_task.fail(
                                 f"{ctx.instance_id}: Activity task #{task_id} failed: {event.taskFailed.failureDetails.errorMessage}",
                                 event.taskFailed.failureDetails,
                             )
                             ctx.resume()
                         else:
-                            activity_task.increment_attempt_count()
-                            ctx.create_timer_internal(next_delay, activity_task)
+                            next_delay = activity_task.compute_next_delay()
+                            if next_delay is None:
+                                activity_task.fail(
+                                    f"{ctx.instance_id}: Activity task #{task_id} failed: {event.taskFailed.failureDetails.errorMessage}",
+                                    event.taskFailed.failureDetails,
+                                )
+                                ctx.resume()
+                            else:
+                                activity_task.increment_attempt_count()
+                                ctx.create_timer_internal(next_delay, activity_task)
                 elif isinstance(activity_task, task.CompletableTask):
                     activity_task.fail(
                         f"{ctx.instance_id}: Activity task #{task_id} failed: {event.taskFailed.failureDetails.errorMessage}",
@@ -1292,16 +1332,32 @@ class _OrchestrationExecutor:
                     return
                 if isinstance(sub_orch_task, task.RetryableTask):
                     if sub_orch_task._retry_policy is not None:
-                        next_delay = sub_orch_task.compute_next_delay()
-                        if next_delay is None:
+                        # Check for non-retryable errors by type name
+                        error_type = failedEvent.failureDetails.errorType
+                        policy = sub_orch_task._retry_policy
+                        is_non_retryable = False
+                        if error_type == getattr(task.NonRetryableError, "__name__", "NonRetryableError"):
+                            is_non_retryable = True
+                        elif policy.non_retryable_error_types is not None and error_type in policy.non_retryable_error_types:
+                            is_non_retryable = True
+
+                        if is_non_retryable:
                             sub_orch_task.fail(
                                 f"Sub-orchestration task #{task_id} failed: {failedEvent.failureDetails.errorMessage}",
                                 failedEvent.failureDetails,
                             )
                             ctx.resume()
                         else:
-                            sub_orch_task.increment_attempt_count()
-                            ctx.create_timer_internal(next_delay, sub_orch_task)
+                            next_delay = sub_orch_task.compute_next_delay()
+                            if next_delay is None:
+                                sub_orch_task.fail(
+                                    f"Sub-orchestration task #{task_id} failed: {failedEvent.failureDetails.errorMessage}",
+                                    failedEvent.failureDetails,
+                                )
+                                ctx.resume()
+                            else:
+                                sub_orch_task.increment_attempt_count()
+                                ctx.create_timer_internal(next_delay, sub_orch_task)
                 elif isinstance(sub_orch_task, task.CompletableTask):
                     sub_orch_task.fail(
                         f"Sub-orchestration task #{task_id} failed: {failedEvent.failureDetails.errorMessage}",
