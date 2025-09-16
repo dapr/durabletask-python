@@ -14,7 +14,7 @@ ClientInterceptor = Union[
     grpc.UnaryUnaryClientInterceptor,
     grpc.UnaryStreamClientInterceptor,
     grpc.StreamUnaryClientInterceptor,
-    grpc.StreamStreamClientInterceptor
+    grpc.StreamStreamClientInterceptor,
 ]
 
 # Field name used to indicate that an object was automatically serialized
@@ -36,7 +36,9 @@ def get_default_host_address() -> str:
     - TASKHUB_GRPC_ENDPOINT (legacy/alt name)
     """
     # Full endpoint overrides
-    endpoint = os.environ.get("DURABLETASK_GRPC_ENDPOINT") or os.environ.get("TASKHUB_GRPC_ENDPOINT")
+    endpoint = os.environ.get("DURABLETASK_GRPC_ENDPOINT") or os.environ.get(
+        "TASKHUB_GRPC_ENDPOINT"
+    )
     if endpoint:
         return endpoint
 
@@ -51,10 +53,11 @@ def get_default_host_address() -> str:
 
 
 def get_grpc_channel(
-        host_address: Optional[str],
-        secure_channel: bool = False,
-        interceptors: Optional[Sequence[ClientInterceptor]] = None,
-        options: Optional[Sequence[tuple[str, Any]]] = None) -> grpc.Channel:
+    host_address: Optional[str],
+    secure_channel: bool = False,
+    interceptors: Optional[Sequence[ClientInterceptor]] = None,
+    options: Optional[Sequence[tuple[str, Any]]] = None,
+) -> grpc.Channel:
     if host_address is None:
         host_address = get_default_host_address()
 
@@ -62,14 +65,14 @@ def get_grpc_channel(
         if host_address.lower().startswith(protocol):
             secure_channel = True
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     for protocol in INSECURE_PROTOCOLS:
         if host_address.lower().startswith(protocol):
             secure_channel = False
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     # Build channel options (merge provided options with env-driven keepalive/retry)
@@ -141,7 +144,9 @@ def get_grpc_keepalive_options() -> list[tuple[str, Any]]:
         return []
     time_ms = _get_env_int("DAPR_GRPC_KEEPALIVE_TIME_MS", 120000)
     timeout_ms = _get_env_int("DAPR_GRPC_KEEPALIVE_TIMEOUT_MS", 20000)
-    permit_without_calls = 1 if _get_env_bool("DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS", False) else 0
+    permit_without_calls = (
+        1 if _get_env_bool("DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS", False) else 0
+    )
     return [
         ("grpc.keepalive_time_ms", time_ms),
         ("grpc.keepalive_timeout_ms", timeout_ms),
@@ -187,7 +192,9 @@ def get_grpc_retry_service_config_option() -> Optional[tuple[str, str]]:
     return ("grpc.service_config", json.dumps(service_config))
 
 
-def build_grpc_channel_options(base_options: Optional[Iterable[tuple[str, Any]]] = None) -> Optional[list[tuple[str, Any]]]:
+def build_grpc_channel_options(
+    base_options: Optional[Iterable[tuple[str, Any]]] = None,
+) -> Optional[list[tuple[str, Any]]]:
     """Combine base options + env-driven keepalive and retry service config.
 
     The returned list is safe to pass as the `options` argument to grpc.secure_channel/insecure_channel.
@@ -206,9 +213,10 @@ def build_grpc_channel_options(base_options: Optional[Iterable[tuple[str, Any]]]
 
 
 def get_logger(
-        name_suffix: str,
-        log_handler: Optional[logging.Handler] = None,
-        log_formatter: Optional[logging.Formatter] = None) -> logging.Logger:
+    name_suffix: str,
+    log_handler: Optional[logging.Handler] = None,
+    log_formatter: Optional[logging.Formatter] = None,
+) -> logging.Logger:
     logger = logging.Logger(f"durabletask-{name_suffix}")
 
     # Add a default log handler if none is provided
@@ -221,7 +229,8 @@ def get_logger(
     if log_formatter is None:
         log_formatter = logging.Formatter(
             fmt="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-            datefmt='%Y-%m-%d %H:%M:%S')
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     log_handler.setFormatter(log_formatter)
     return logger
 
@@ -239,7 +248,11 @@ class InternalJSONEncoder(json.JSONEncoder):
 
     def encode(self, obj: Any) -> str:
         # if the object is a namedtuple, convert it to a dict with the AUTO_SERIALIZED key added
-        if isinstance(obj, tuple) and hasattr(obj, "_fields") and hasattr(obj, "_asdict"):
+        if (
+            isinstance(obj, tuple)
+            and hasattr(obj, "_fields")
+            and hasattr(obj, "_asdict")
+        ):
             d = obj._asdict()  # type: ignore
             d[AUTO_SERIALIZED] = True
             obj = d

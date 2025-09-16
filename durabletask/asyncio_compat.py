@@ -39,14 +39,32 @@ class AsyncWorkflowContext:
         self._rng = None  # lazy-initialized deterministic RNG
 
     # Activities & Sub-orchestrations
-    def activity(self, name: Union[dt_task.Activity, str], *, input: Optional[Any] = None,
-                 retry_policy: Optional[dt_task.RetryPolicy] = None) -> "_ActivityAwaitable":
-        return _ActivityAwaitable(self._base_ctx, name, input=input, retry_policy=retry_policy)
+    def activity(
+        self,
+        name: Union[dt_task.Activity, str],
+        *,
+        input: Optional[Any] = None,
+        retry_policy: Optional[dt_task.RetryPolicy] = None,
+    ) -> "_ActivityAwaitable":
+        return _ActivityAwaitable(
+            self._base_ctx, name, input=input, retry_policy=retry_policy
+        )
 
-    def sub_orchestrator(self, orchestrator: dt_task.Orchestrator[TInput, TOutput], *, input: Optional[Any] = None,
-                          instance_id: Optional[str] = None,
-                          retry_policy: Optional[dt_task.RetryPolicy] = None) -> "_SubOrchestratorAwaitable[TOutput]":
-        return _SubOrchestratorAwaitable(self._base_ctx, orchestrator, input=input, instance_id=instance_id, retry_policy=retry_policy)
+    def sub_orchestrator(
+        self,
+        orchestrator: dt_task.Orchestrator[TInput, TOutput],
+        *,
+        input: Optional[Any] = None,
+        instance_id: Optional[str] = None,
+        retry_policy: Optional[dt_task.RetryPolicy] = None,
+    ) -> "_SubOrchestratorAwaitable[TOutput]":
+        return _SubOrchestratorAwaitable(
+            self._base_ctx,
+            orchestrator,
+            input=input,
+            instance_id=instance_id,
+            retry_policy=retry_policy,
+        )
 
     # Timers & Events
     def sleep(self, duration: Union[float, timedelta, datetime]) -> "_SleepAwaitable":
@@ -56,14 +74,20 @@ class AsyncWorkflowContext:
         return _ExternalEventAwaitable(self._base_ctx, name)
 
     # Concurrency
-    def when_all(self, awaitables: Sequence["_AwaitableBase[Any]"]) -> "_WhenAllAwaitable":
+    def when_all(
+        self, awaitables: Sequence["_AwaitableBase[Any]"]
+    ) -> "_WhenAllAwaitable":
         return _WhenAllAwaitable(awaitables)
 
-    def when_any(self, awaitables: Sequence["_AwaitableBase[Any]"]) -> "_WhenAnyAwaitable":
+    def when_any(
+        self, awaitables: Sequence["_AwaitableBase[Any]"]
+    ) -> "_WhenAnyAwaitable":
         return _WhenAnyAwaitable(awaitables)
 
     # Gather (asyncio-like)
-    def gather(self, *aws: "_AwaitableBase[Any]", return_exceptions: bool = False) -> "_WhenAllAwaitable":
+    def gather(
+        self, *aws: "_AwaitableBase[Any]", return_exceptions: bool = False
+    ) -> "_WhenAllAwaitable":
         if return_exceptions:
             wrapped: list[_AwaitableBase[Any]] = [
                 _SwallowExceptionAwaitable(a) for a in aws
@@ -77,10 +101,13 @@ class AsyncWorkflowContext:
 
     def random(self):
         import random as _random
+
         if self._rng is None:
             # Use a deterministic seed derived from instance_id
             # Avoid Python's built-in hash() salt; use SHA-256 for stable results
-            seed_bytes = hashlib.sha256(self._base_ctx.instance_id.encode("utf-8")).digest()[:8]
+            seed_bytes = hashlib.sha256(
+                self._base_ctx.instance_id.encode("utf-8")
+            ).digest()[:8]
             seed = int.from_bytes(seed_bytes, byteorder="big", signed=False)
             self._rng = _random.Random(seed)
         return self._rng
@@ -97,6 +124,30 @@ class AsyncWorkflowContext:
     def instance_id(self) -> str:
         return getattr(self._base_ctx, "instance_id")
 
+    @property
+    def workflow_name(self) -> str:
+        return getattr(self._base_ctx, "workflow_name", "")
+
+    @property
+    def parent_instance_id(self) -> Optional[str]:
+        return getattr(self._base_ctx, "parent_instance_id", None)
+
+    @property
+    def history_event_sequence(self) -> Optional[int]:
+        return getattr(self._base_ctx, "history_event_sequence", None)
+
+    @property
+    def trace_parent(self) -> Optional[str]:
+        return getattr(self._base_ctx, "trace_parent", None)
+
+    @property
+    def trace_state(self) -> Optional[str]:
+        return getattr(self._base_ctx, "trace_state", None)
+
+    @property
+    def orchestration_span_id(self) -> Optional[str]:
+        return getattr(self._base_ctx, "orchestration_span_id", None)
+
     def set_custom_status(self, status: Any) -> None:
         self._base_ctx.set_custom_status(status)
 
@@ -109,9 +160,9 @@ class AsyncWorkflowContext:
         rand_int = rng.getrandbits(128)
         # Conform to UUIDv4 variant/version bits
         rand_int &= ~(0xF << 76)
-        rand_int |= (4 << 76)  # version 4
+        rand_int |= 4 << 76  # version 4
         rand_int &= ~(0x3 << 62)
-        rand_int |= (0x2 << 62)  # variant 10
+        rand_int |= 0x2 << 62  # variant 10
         return _uuid.UUID(int=rand_int)
 
 
@@ -125,20 +176,35 @@ class _AwaitableBase(Awaitable[TOutput]):
 
 
 class _ActivityAwaitable(_AwaitableBase[TOutput]):
-    def __init__(self, ctx: dt_task.OrchestrationContext, name: Union[dt_task.Activity, str], *,
-                 input: Optional[Any] = None, retry_policy: Optional[dt_task.RetryPolicy] = None):
+    def __init__(
+        self,
+        ctx: dt_task.OrchestrationContext,
+        name: Union[dt_task.Activity, str],
+        *,
+        input: Optional[Any] = None,
+        retry_policy: Optional[dt_task.RetryPolicy] = None,
+    ):
         self._ctx = ctx
         self._name = name
         self._input = input
         self._retry_policy = retry_policy
 
     def _to_durable_task(self) -> dt_task.Task[TOutput]:
-        return self._ctx.call_activity(self._name, input=self._input, retry_policy=self._retry_policy)
+        return self._ctx.call_activity(
+            self._name, input=self._input, retry_policy=self._retry_policy
+        )
 
 
 class _SubOrchestratorAwaitable(_AwaitableBase[TOutput]):
-    def __init__(self, ctx: dt_task.OrchestrationContext, orchestrator: dt_task.Orchestrator[TInput, TOutput], *, input: Optional[Any] = None,
-                 instance_id: Optional[str] = None, retry_policy: Optional[dt_task.RetryPolicy] = None):
+    def __init__(
+        self,
+        ctx: dt_task.OrchestrationContext,
+        orchestrator: dt_task.Orchestrator[TInput, TOutput],
+        *,
+        input: Optional[Any] = None,
+        instance_id: Optional[str] = None,
+        retry_policy: Optional[dt_task.RetryPolicy] = None,
+    ):
         self._ctx = ctx
         self._orchestrator = orchestrator
         self._input = input
@@ -146,11 +212,20 @@ class _SubOrchestratorAwaitable(_AwaitableBase[TOutput]):
         self._retry_policy = retry_policy
 
     def _to_durable_task(self) -> dt_task.Task[TOutput]:
-        return self._ctx.call_sub_orchestrator(self._orchestrator, input=self._input, instance_id=self._instance_id, retry_policy=self._retry_policy)
+        return self._ctx.call_sub_orchestrator(
+            self._orchestrator,
+            input=self._input,
+            instance_id=self._instance_id,
+            retry_policy=self._retry_policy,
+        )
 
 
 class _SleepAwaitable(_AwaitableBase[None]):
-    def __init__(self, ctx: dt_task.OrchestrationContext, duration: Union[float, timedelta, datetime]):
+    def __init__(
+        self,
+        ctx: dt_task.OrchestrationContext,
+        duration: Union[float, timedelta, datetime],
+    ):
         self._ctx = ctx
         self._duration = duration
 
@@ -212,12 +287,18 @@ class _SwallowExceptionAwaitable(_AwaitableBase[Any]):
 class CoroutineOrchestratorRunner:
     """Driver that bridges an async orchestrator to a generator orchestrator."""
 
-    def __init__(self, async_orchestrator: Callable[[AsyncWorkflowContext, Any], Awaitable[Any]], *,
-                 sandbox_mode: str = "off") -> None:
+    def __init__(
+        self,
+        async_orchestrator: Callable[[AsyncWorkflowContext, Any], Awaitable[Any]],
+        *,
+        sandbox_mode: str = "off",
+    ) -> None:
         self._async_orchestrator = async_orchestrator
         self._sandbox_mode = sandbox_mode
 
-    def to_generator(self, async_ctx: AsyncWorkflowContext, input_data: Any) -> Generator[dt_task.Task, Any, Any]:
+    def to_generator(
+        self, async_ctx: AsyncWorkflowContext, input_data: Any
+    ) -> Generator[dt_task.Task, Any, Any]:
         coro = cast(Any, self._async_orchestrator(async_ctx, input_data))
 
         def to_iter(obj):
@@ -228,6 +309,7 @@ class CoroutineOrchestratorRunner:
                 def _one_shot():
                     res = yield obj
                     return res
+
                 return _one_shot()
             raise TypeError("Async orchestrator awaited unsupported object type")
 
@@ -341,8 +423,11 @@ def _compat_sandbox(async_ctx: AsyncWorkflowContext, mode: str):
     def patched_sleep(delay: Union[float, int]):
         class _PatchedSleepAwaitable:
             def __await__(self):
-                result = yield async_ctx._base_ctx.create_timer(timedelta(seconds=float(delay)))
+                result = yield async_ctx._base_ctx.create_timer(
+                    timedelta(seconds=float(delay))
+                )
                 return result
+
         return _PatchedSleepAwaitable()
 
     rng = async_ctx.random()
@@ -377,8 +462,12 @@ def _compat_sandbox(async_ctx: AsyncWorkflowContext, mode: str):
     # Apply patches
     _asyncio.sleep = patched_sleep  # type: ignore
     if mode == "strict" and hasattr(_asyncio, "create_task"):
+
         def _blocked_create_task(*args, **kwargs):  # noqa: N802
-            raise RuntimeError("asyncio.create_task is not allowed in workflows (strict mode)")
+            raise RuntimeError(
+                "asyncio.create_task is not allowed in workflows (strict mode)"
+            )
+
         _asyncio.create_task = _blocked_create_task  # type: ignore
     _random.random = patched_random  # type: ignore
     _random.randrange = patched_randrange  # type: ignore
@@ -395,6 +484,7 @@ def _compat_sandbox(async_ctx: AsyncWorkflowContext, mode: str):
         import random as _random2
         import time as _time2
         import uuid as _uuid2
+
         _asyncio2.sleep = originals["asyncio.sleep"]  # type: ignore
         if originals["asyncio.create_task"] is not None:
             _asyncio2.create_task = originals["asyncio.create_task"]  # type: ignore
@@ -405,7 +495,6 @@ def _compat_sandbox(async_ctx: AsyncWorkflowContext, mode: str):
         if originals["time.time_ns"] is not None:
             _time2.time_ns = originals["time.time_ns"]  # type: ignore
 
-
         _asyncio2.sleep = originals["asyncio.sleep"]  # type: ignore
         _random2.random = originals["random.random"]  # type: ignore
         _random2.randrange = originals["random.randrange"]  # type: ignore
@@ -413,5 +502,3 @@ def _compat_sandbox(async_ctx: AsyncWorkflowContext, mode: str):
         _time2.time = originals["time.time"]  # type: ignore
         if originals["time.time_ns"] is not None:
             _time2.time_ns = originals["time.time_ns"]  # type: ignore
-
-

@@ -118,7 +118,7 @@ Orchestrations can start child orchestrations using the `call_sub_orchestrator` 
 
 Orchestrations can wait for external events using the `wait_for_external_event` API. External events are useful for implementing human interaction patterns, such as waiting for a user to approve an order before continuing.
 
-### Continue-as-new (TODO)
+### Continue-as-new
 
 Orchestrations can be continued as new using the `continue_as_new` API. This API allows an orchestration to restart itself from scratch, optionally with a new input.
 
@@ -126,7 +126,7 @@ Orchestrations can be continued as new using the `continue_as_new` API. This API
 
 Orchestrations can be suspended using the `suspend_orchestration` client API and will remain suspended until resumed using the `resume_orchestration` client API. A suspended orchestration will stop processing new events, but will continue to buffer any that happen to arrive until resumed, ensuring that no data is lost. An orchestration can also be terminated using the `terminate_orchestration` client API. Terminated orchestrations will stop processing new events and will discard any buffered events.
 
-### Retry policies (TODO)
+### Retry policies
 
 Orchestrations can specify retry policies for activities and sub-orchestrations. These policies control how many times and how frequently an activity or sub-orchestration will be retried in the event of a transient error.
 
@@ -199,10 +199,12 @@ The SDK connects to a Durable Task sidecar. By default it uses `localhost:4001`.
 - `DURABLETASK_GRPC_HOST` and `DURABLETASK_GRPC_PORT`
 - `TASKHUB_GRPC_ENDPOINT` (legacy)
 
-Example:
+Example (common ports: 4001 for DurableTask-Go emulator, 50001 for Dapr sidecar):
 
 ```sh
 export DURABLETASK_GRPC_ENDPOINT=localhost:4001
+# or
+export DURABLETASK_GRPC_ENDPOINT=localhost:50001
 ```
 
 ### Async authoring compatibility
@@ -250,9 +252,10 @@ await ctx.when_all([t1, t2])
 winner = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(5)])
 ```
 
-- Sub-orchestrations:
+- Sub-orchestrations (function reference or registered name):
 ```python
-out = await ctx.sub_orchestrator("child", input=payload)
+out = await ctx.sub_orchestrator(child_fn, input=payload)
+# or: out = await ctx.sub_orchestrator("child", input=payload)
 ```
 
 - Deterministic utilities:
@@ -278,6 +281,29 @@ with TaskHubGrpcWorker() as worker:
 - Suspend pauses progress without raising inside async orchestrators.
 - Terminate completes with `TERMINATED` status; use client APIs to terminate/resume.
  - Only new events are buffered while suspended; replay events continue to apply to rebuild local state deterministically.
+
+### Tracing and context propagation
+
+The SDK surfaces W3C tracing context provided by the sidecar:
+
+- Orchestrations: `ctx.trace_parent`, `ctx.trace_state`, and `ctx.orchestration_span_id` are available on `OrchestrationContext` (and on `AsyncWorkflowContext`).
+- Activities: `ctx.trace_parent` and `ctx.trace_state` are available on `ActivityContext`.
+
+Propagate tracing to external systems (e.g., HTTP):
+
+```python
+def activity(ctx, payload):
+    headers = {
+        "traceparent": ctx.trace_parent or "",
+        "tracestate": ctx.trace_state or "",
+    }
+    # requests.post(url, headers=headers, json=payload)
+    return "ok"
+```
+
+Notes:
+- The sidecar controls inbound `traceparent`/`tracestate`. App code can append vendor entries to `tracestate` for outbound calls but cannot currently alter the sidecar’s propagation for downstream Durable operations.
+- Configure the sidecar endpoint with `DURABLETASK_GRPC_ENDPOINT` (e.g., `127.0.0.1:56178`).
 
 ## Contributing
 

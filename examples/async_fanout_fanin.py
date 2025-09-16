@@ -31,7 +31,9 @@ def main():
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(get_work_items)
         worker.add_activity(process_work_item)
-        worker.add_async_orchestrator(async_fanout_fanin, name="async_fanout_fanin", sandbox_mode="off")
+        worker.add_async_orchestrator(
+            async_fanout_fanin, name="async_fanout_fanin", sandbox_mode="off"
+        )
         worker.start()
         worker.wait_for_ready(timeout=5)
 
@@ -47,6 +49,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

@@ -26,7 +26,7 @@ def main():
         worker.add_activity(identity)
         worker.add_async_orchestrator(child, name="child", sandbox_mode="off")
         worker.add_async_orchestrator(parent, name="parent", sandbox_mode="off")
-        
+
         print("Starting worker")
         worker.start()
         worker.wait_for_ready(timeout=5)
@@ -44,5 +44,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

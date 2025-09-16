@@ -22,7 +22,9 @@ def main():
 
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(to_upper)
-        worker.add_async_orchestrator(async_sequence, name="async_sequence", sandbox_mode="off")
+        worker.add_async_orchestrator(
+            async_sequence, name="async_sequence", sandbox_mode="off"
+        )
         worker.start()
         worker.wait_for_ready(timeout=5)
 
@@ -33,7 +35,11 @@ def main():
         state = client.wait_for_orchestration_completion(instance_id, timeout=60)
         if state:
             if state.failure_details:
-                print("Failure:", state.failure_details.error_type, state.failure_details.message)
+                print(
+                    "Failure:",
+                    state.failure_details.error_type,
+                    state.failure_details.message,
+                )
                 print("Stack:\n", state.failure_details.stack_trace)
             state.raise_if_failed()
             print(f"Completed with output: {state.serialized_output}")
@@ -44,5 +50,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

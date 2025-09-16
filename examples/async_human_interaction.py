@@ -48,18 +48,24 @@ def main():
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(send_approval_request)
         worker.add_activity(place_order)
-        worker.add_async_orchestrator(purchase_order_workflow, name="async_purchase_order")
+        worker.add_async_orchestrator(
+            purchase_order_workflow, name="async_purchase_order"
+        )
         worker.start()
         worker.wait_for_ready(timeout=5)
 
         client = TaskHubGrpcClient()
         order = Order(2000, "MyProduct", 1)
-        instance_id = client.schedule_new_orchestration("async_purchase_order", input=order)
+        instance_id = client.schedule_new_orchestration(
+            "async_purchase_order", input=order
+        )
 
         def prompt_for_approval():
             input("Press [ENTER] to approve the order...\n")
             approval_event = namedtuple("Approval", ["approver"])("Me")
-            client.raise_orchestration_event(instance_id, "approval_received", data=approval_event)
+            client.raise_orchestration_event(
+                instance_id, "approval_received", data=approval_event
+            )
 
         threading.Thread(target=prompt_for_approval, daemon=True).start()
         state = client.wait_for_orchestration_completion(instance_id, timeout=120)
@@ -71,6 +77,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

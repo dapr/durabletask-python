@@ -4,12 +4,9 @@ import logging
 import random
 import time
 import uuid
-from datetime import timedelta
-
-import pytest
+from datetime import timedelta  # noqa: F401
 
 import durabletask.internal.helpers as helpers
-from durabletask import task
 from durabletask.worker import _OrchestrationExecutor, _Registry
 
 TEST_INSTANCE_ID = "async-test-1"
@@ -50,9 +47,13 @@ def test_async_activity_and_sleep():
 
     # fire timer → expect second activity
     now_dt = helpers.new_orchestrator_started_event().timestamp.ToDatetime()
-    old_events = old_events + new_events + [
-        helpers.new_timer_created_event(2, now_dt),
-    ]
+    old_events = (
+        old_events
+        + new_events
+        + [
+            helpers.new_timer_created_event(2, now_dt),
+        ]
+    )
     new_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_timer_fired_event(2, now_dt),
@@ -62,7 +63,9 @@ def test_async_activity_and_sleep():
     assert res.actions[0].scheduleTask.name == activity_name
 
     # complete second activity → done
-    old_events = old_events + new_events + [helpers.new_task_scheduled_event(1, activity_name)]
+    old_events = (
+        old_events + new_events + [helpers.new_task_scheduled_event(1, activity_name)]
+    )
     new_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_task_completed_event(1, encoded_output=json.dumps(2)),
@@ -76,7 +79,7 @@ def test_async_when_all_any_and_events():
         t1 = ctx.activity("a", input=1)
         t2 = ctx.activity("b", input=2)
         await ctx.when_all([t1, t2])
-        winner = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(0.1)])
+        _ = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(0.1)])
         return "ok"
 
     def a(_, x):
@@ -87,8 +90,8 @@ def test_async_when_all_any_and_events():
 
     registry = _Registry()
     name = registry.add_async_orchestrator(orch)  # type: ignore[attr-defined]
-    an = registry.add_activity(a)
-    bn = registry.add_activity(b)
+    _ = registry.add_activity(a)
+    _ = registry.add_activity(b)
 
     # start → schedule both activities
     new_events = [
@@ -97,7 +100,10 @@ def test_async_when_all_any_and_events():
     ]
     exec = _OrchestrationExecutor(registry, logging.getLogger("tests"))
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
-    assert len(res.actions) == 2 and all(a.HasField("scheduleTask") for a in res.actions)
+    assert len(res.actions) == 2 and all(
+        a.HasField("scheduleTask") for a in res.actions
+    )
+
 
 def test_async_external_event_immediate_and_buffered():
     async def orch(ctx, _):
@@ -122,6 +128,7 @@ def test_async_external_event_immediate_and_buffered():
     res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
 
+
 def test_async_sub_orchestrator_completion_and_failure():
     async def child(ctx, x):
         return x
@@ -138,7 +145,9 @@ def test_async_sub_orchestrator_completion_and_failure():
     # Start parent → expect createSubOrchestration action
     new_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_execution_started_event(
+            parent_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
     ]
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("createSubOrchestration")
@@ -147,18 +156,26 @@ def test_async_sub_orchestrator_completion_and_failure():
     # Simulate sub-orch created then completed
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_sub_orchestration_created_event(1, child_name, f"{TEST_INSTANCE_ID}:0001", encoded_input=None),
+        helpers.new_execution_started_event(
+            parent_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+        helpers.new_sub_orchestration_created_event(
+            1, child_name, f"{TEST_INSTANCE_ID}:0001", encoded_input=None
+        ),
     ]
-    new_events = [helpers.new_sub_orchestration_completed_event(1, encoded_output=json.dumps(5))]
+    new_events = [
+        helpers.new_sub_orchestration_completed_event(1, encoded_output=json.dumps(5))
+    ]
     res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
 
     # Also verify the worker-level wrapper does not surface StopIteration
     from durabletask.worker import TaskHubGrpcWorker
+
     w = TaskHubGrpcWorker()
     w.add_async_orchestrator(child, name="child")
     w.add_async_orchestrator(parent, name="parent")
+
 
 def test_async_sandbox_sleep_patching_creates_timer():
     async def orch(ctx, _):
@@ -174,6 +191,7 @@ def test_async_sandbox_sleep_patching_creates_timer():
     ]
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("createTimer")
+
 
 def test_async_sandbox_deterministic_random_uuid_time():
     async def orch(ctx, _):
@@ -196,6 +214,7 @@ def test_async_sandbox_deterministic_random_uuid_time():
     res2 = exec.execute(TEST_INSTANCE_ID, [], new_events)
     out2 = res2.actions[0].completeOrchestration.result.value
     assert out1 == out2
+
 
 def test_async_two_activities_no_timer():
     async def orch(ctx, _):
@@ -229,13 +248,46 @@ def test_async_two_activities_no_timer():
     assert len(res.actions) == 1 and res.actions[0].HasField("scheduleTask")
 
     # complete second -> done
-    old_events = old_events + new_events + [helpers.new_task_scheduled_event(1, activity_name)]
+    old_events = (
+        old_events + new_events + [helpers.new_task_scheduled_event(1, activity_name)]
+    )
     new_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_task_completed_event(1, encoded_output=json.dumps(2)),
     ]
     res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
+
+
+def test_async_ctx_metadata_passthrough():
+    async def orch(ctx, _):
+        # Access deterministic metadata via AsyncWorkflowContext
+        return {
+            "name": ctx.workflow_name,
+            "parent": ctx.parent_instance_id,
+            "seq": ctx.history_event_sequence,
+            "id": ctx.instance_id,
+            "replay": ctx.is_replaying,
+            "susp": ctx.is_suspended,
+        }
+
+    registry = _Registry()
+    name = registry.add_async_orchestrator(orch)  # type: ignore[attr-defined]
+    exec = _OrchestrationExecutor(registry, logging.getLogger("tests"))
+
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+    ]
+    res = exec.execute(TEST_INSTANCE_ID, [], new_events)
+    assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
+    out_json = res.actions[0].completeOrchestration.result.value
+    out = json.loads(out_json)
+    assert out["name"] == name
+    assert out["parent"] is None
+    assert out["seq"] == 2
+    assert out["id"] == TEST_INSTANCE_ID
+    assert out["replay"] is False
 
 
 def test_async_gather_happy_path_and_return_exceptions():
@@ -264,7 +316,9 @@ def test_async_gather_happy_path_and_return_exceptions():
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
     ]
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
-    assert len(res.actions) == 3 and all(a.HasField("scheduleTask") for a in res.actions)
+    assert len(res.actions) == 3 and all(
+        a.HasField("scheduleTask") for a in res.actions
+    )
 
     # mark scheduled
     old_events = new_events + [
@@ -335,7 +389,9 @@ def test_async_when_any_ignores_losers_deterministically():
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
     ]
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
-    assert len(res.actions) == 2 and all(a.HasField("scheduleTask") for a in res.actions)
+    assert len(res.actions) == 2 and all(
+        a.HasField("scheduleTask") for a in res.actions
+    )
 
     # winner completes -> orchestration should complete; no extra commands emitted to cancel loser
     old_events = new_events + [
@@ -371,7 +427,7 @@ def test_async_termination_maps_to_cancellation():
     res = exec.execute(TEST_INSTANCE_ID, [], new_events)
     assert any(a.HasField("createTimer") for a in res.actions)
     # Capture the actual timer ID to avoid non-determinism in tests
-    timer_id = next(a.id for a in res.actions if a.HasField("createTimer"))
+    _ = next(a.id for a in res.actions if a.HasField("createTimer"))
 
     # terminate -> expect completion with TERMINATED and encoded output preserved
     old_events = new_events
@@ -410,7 +466,9 @@ def test_async_suspend_sets_flag_and_resumes_without_raising():
     assert not any(a.HasField("completeOrchestration") for a in res.actions)
 
     # Confirm timer created after first activation
-    old_events = old_events + new_events + [helpers.new_timer_created_event(timer_id, now_dt)]
+    old_events = (
+        old_events + new_events + [helpers.new_timer_created_event(timer_id, now_dt)]
+    )
 
     # Resume activation
     new_events = [helpers.new_orchestrator_started_event(), helpers.new_resume_event()]
@@ -418,7 +476,10 @@ def test_async_suspend_sets_flag_and_resumes_without_raising():
     old_events = old_events + new_events
 
     # Timer fires in next activation
-    new_events = [helpers.new_orchestrator_started_event(), helpers.new_timer_fired_event(timer_id, now_dt)]
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_timer_fired_event(timer_id, now_dt),
+    ]
     res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
 
@@ -447,4 +508,3 @@ def test_async_suspend_resume_like_generator_test():
     new_events = [helpers.new_resume_event()]
     res = exec.execute(TEST_INSTANCE_ID, old_events, new_events)
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
-
