@@ -584,6 +584,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
         self._sequence_number = 0
         self._current_utc_datetime = datetime(1000, 1, 1)
         self._instance_id = instance_id
+        self._app_id = None
         self._completion_status: Optional[pb.OrchestrationStatus] = None
         self._received_events: dict[str, list[Any]] = {}
         self._pending_events: dict[str, list[task.CompletableTask]] = {}
@@ -706,6 +707,10 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
         return self._sequence_number
 
     @property
+    def app_id(self) -> str:
+        return self._app_id
+
+    @property
     def instance_id(self) -> str:
         return self._instance_id
 
@@ -752,24 +757,29 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             *,
             input: Optional[TInput] = None,
             retry_policy: Optional[task.RetryPolicy] = None,
+            app_id: Optional[str] = None,
     ) -> task.Task[TOutput]:
         id = self.next_sequence_number()
 
         self.call_activity_function_helper(
-            id, activity, input=input, retry_policy=retry_policy, is_sub_orch=False
+            id, activity, input=input, retry_policy=retry_policy, is_sub_orch=False, app_id=app_id
         )
         return self._pending_tasks.get(id, task.CompletableTask())
 
     def call_sub_orchestrator(
             self,
-            orchestrator: task.Orchestrator[TInput, TOutput],
+            orchestrator: Union[task.Orchestrator[TInput, TOutput], str],
             *,
             input: Optional[TInput] = None,
             instance_id: Optional[str] = None,
             retry_policy: Optional[task.RetryPolicy] = None,
+            app_id: Optional[str] = None,
     ) -> task.Task[TOutput]:
         id = self.next_sequence_number()
-        orchestrator_name = task.get_name(orchestrator)
+        if isinstance(orchestrator, str):
+            orchestrator_name = orchestrator
+        else:
+            orchestrator_name = task.get_name(orchestrator)
         self.call_activity_function_helper(
             id,
             orchestrator_name,
@@ -777,6 +787,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             retry_policy=retry_policy,
             is_sub_orch=True,
             instance_id=instance_id,
+            app_id=app_id,
         )
         return self._pending_tasks.get(id, task.CompletableTask())
 
@@ -790,9 +801,15 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             is_sub_orch: bool = False,
             instance_id: Optional[str] = None,
             fn_task: Optional[task.CompletableTask[TOutput]] = None,
+            app_id: Optional[str] = None,
     ):
         if id is None:
             id = self.next_sequence_number()
+
+        router = pb.TaskRouter()
+        router.sourceAppID = self._app_id
+        if app_id is not None:
+            router.targetAppID = app_id
 
         if fn_task is None:
             encoded_input = shared.to_json(input) if input is not None else None
@@ -806,7 +823,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
                 if isinstance(activity_function, str)
                 else task.get_name(activity_function)
             )
-            action = ph.new_schedule_task_action(id, name, encoded_input)
+            action = ph.new_schedule_task_action(id, name, encoded_input, router)
         else:
             if instance_id is None:
                 # Create a deteministic instance ID based on the parent instance ID
@@ -814,7 +831,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             if not isinstance(activity_function, str):
                 raise ValueError("Orchestrator function name must be a string")
             action = ph.new_create_sub_orchestration_action(
-                id, activity_function, instance_id, encoded_input
+                id, activity_function, instance_id, encoded_input, router
             )
         self._pending_actions[id] = action
 
@@ -953,6 +970,11 @@ class _OrchestrationExecutor:
             if event.HasField("orchestratorStarted"):
                 ctx.current_utc_datetime = event.timestamp.ToDatetime()
             elif event.HasField("executionStarted"):
+                if event.router.targetAppID:
+                    ctx._app_id = event.router.targetAppID
+                else:
+                    ctx._app_id = event.router.sourceAppID
+
                 # TODO: Check if we already started the orchestration
                 fn = self._registry.get_orchestrator(event.executionStarted.name)
                 if fn is None:
@@ -1010,6 +1032,11 @@ class _OrchestrationExecutor:
                     else:
                         cur_task = activity_action.createSubOrchestration
                         instance_id = cur_task.instanceId
+                    if cur_task.router and cur_task.router.targetAppID:
+                        target_app_id = cur_task.router.targetAppID
+                    else:
+                        target_app_id = None
+
                     ctx.call_activity_function_helper(
                         id=activity_action.id,
                         activity_function=cur_task.name,
@@ -1018,6 +1045,7 @@ class _OrchestrationExecutor:
                         is_sub_orch=timer_task._retryable_parent._is_sub_orch,
                         instance_id=instance_id,
                         fn_task=timer_task._retryable_parent,
+                        app_id=target_app_id,
                     )
                 else:
                     ctx.resume()

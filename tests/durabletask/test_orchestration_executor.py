@@ -171,6 +171,70 @@ def test_schedule_activity_actions():
     assert actions[0].scheduleTask.input.value == encoded_input
 
 
+def test_schedule_activity_actions_router_without_app_id():
+    """Tests that scheduleTask action contains correct router fields when app_id is specified"""
+    def dummy_activity(ctx, _):
+        pass
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(dummy_activity, input=42)
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    # Prepare execution started event with source app set on router
+    exec_evt = helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt.router.sourceAppID = "source-app"
+
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        exec_evt,
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, [], new_events)
+    actions = result.actions
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.router.sourceAppID == "source-app"
+    assert action.router.targetAppID == ''
+    assert action.scheduleTask.router.sourceAppID == "source-app"
+    assert action.scheduleTask.router.targetAppID == ''
+
+
+def test_schedule_activity_actions_router_with_app_id():
+    """Tests that scheduleTask action contains correct router fields when app_id is specified"""
+    def dummy_activity(ctx, _):
+        pass
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(dummy_activity, input=42, app_id="target-app")
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    # Prepare execution started event with source app set on router
+    exec_evt = helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt.router.sourceAppID = "source-app"
+
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        exec_evt,
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, [], new_events)
+    actions = result.actions
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.router.sourceAppID == "source-app"
+    assert action.router.targetAppID == "target-app"
+    assert action.scheduleTask.router.sourceAppID == "source-app"
+    assert action.scheduleTask.router.targetAppID == "target-app"
+
+
 def test_activity_task_completion():
     """Tests the successful completion of an activity task"""
 
@@ -559,6 +623,70 @@ def test_sub_orchestration_task_completion():
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_COMPLETED
     assert complete_action.result.value == "42"
+
+
+def test_create_sub_orchestration_actions_router_without_app_id():
+    """Tests that createSubOrchestration action contains correct router fields when app_id is specified"""
+    def suborchestrator(ctx: task.OrchestrationContext, _):
+        pass
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(suborchestrator, input=None)
+
+    registry = worker._Registry()
+    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    orchestrator_name = registry.add_orchestrator(orchestrator)
+
+    exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt.router.sourceAppID = "source-app"
+
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        exec_evt,
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, [], new_events)
+    actions = result.actions
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.router.sourceAppID == "source-app"
+    assert action.router.targetAppID == ''
+    assert action.createSubOrchestration.router.sourceAppID == "source-app"
+    assert action.createSubOrchestration.router.targetAppID == ''
+
+
+def test_create_sub_orchestration_actions_router_with_app_id():
+    """Tests that createSubOrchestration action contains correct router fields when app_id is specified"""
+    def suborchestrator(ctx: task.OrchestrationContext, _):
+        pass
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(suborchestrator, input=None, app_id="target-app")
+
+    registry = worker._Registry()
+    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    orchestrator_name = registry.add_orchestrator(orchestrator)
+
+    exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt.router.sourceAppID = "source-app"
+
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        exec_evt,
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, [], new_events)
+    actions = result.actions
+
+    assert len(actions) == 1
+    action = actions[0]
+    assert action.router.sourceAppID == "source-app"
+    assert action.router.targetAppID == "target-app"
+    assert action.createSubOrchestration.router.sourceAppID == "source-app"
+    assert action.createSubOrchestration.router.targetAppID == "target-app"
 
 
 def test_sub_orchestration_task_failed():

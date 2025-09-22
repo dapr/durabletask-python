@@ -178,11 +178,16 @@ def new_create_timer_action(id: int, fire_at: datetime) -> pb.OrchestratorAction
     return pb.OrchestratorAction(id=id, createTimer=pb.CreateTimerAction(fireAt=timestamp))
 
 
-def new_schedule_task_action(id: int, name: str, encoded_input: Optional[str]) -> pb.OrchestratorAction:
-    return pb.OrchestratorAction(id=id, scheduleTask=pb.ScheduleTaskAction(
-        name=name,
-        input=get_string_value(encoded_input)
-    ))
+def new_schedule_task_action(id: int, name: str, encoded_input: Optional[str], router: Optional[pb.TaskRouter] = None) -> pb.OrchestratorAction:
+    return pb.OrchestratorAction(
+        id=id,
+        scheduleTask=pb.ScheduleTaskAction(
+            name=name,
+            input=get_string_value(encoded_input),
+            router=router,
+        ),
+        router=router,
+    )
 
 
 def new_timestamp(dt: datetime) -> timestamp_pb2.Timestamp:
@@ -195,12 +200,18 @@ def new_create_sub_orchestration_action(
         id: int,
         name: str,
         instance_id: Optional[str],
-        encoded_input: Optional[str]) -> pb.OrchestratorAction:
-    return pb.OrchestratorAction(id=id, createSubOrchestration=pb.CreateSubOrchestrationAction(
-        name=name,
-        instanceId=instance_id,
-        input=get_string_value(encoded_input)
-    ))
+        encoded_input: Optional[str],
+        router: Optional[pb.TaskRouter] = None) -> pb.OrchestratorAction:
+    return pb.OrchestratorAction(
+        id=id,
+        createSubOrchestration=pb.CreateSubOrchestrationAction(
+            name=name,
+            instanceId=instance_id,
+            input=get_string_value(encoded_input),
+            router=router,
+        ),
+        router=router,
+    )
 
 
 def is_empty(v: wrappers_pb2.StringValue):
