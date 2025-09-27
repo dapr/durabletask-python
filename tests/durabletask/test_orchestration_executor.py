@@ -634,7 +634,7 @@ def test_create_sub_orchestration_actions_router_without_app_id():
         yield ctx.call_sub_orchestrator(suborchestrator, input=None)
 
     registry = worker._Registry()
-    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    registry.add_orchestrator(suborchestrator)
     orchestrator_name = registry.add_orchestrator(orchestrator)
 
     exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
@@ -666,7 +666,7 @@ def test_create_sub_orchestration_actions_router_with_app_id():
         yield ctx.call_sub_orchestrator(suborchestrator, input=None, app_id="target-app")
 
     registry = worker._Registry()
-    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    registry.add_orchestrator(suborchestrator)
     orchestrator_name = registry.add_orchestrator(orchestrator)
 
     exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)

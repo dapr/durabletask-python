@@ -1,21 +1,27 @@
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
-
+import asyncio
 import json
 import threading
-import time
 from datetime import timedelta
 
 import pytest
 
-from durabletask import client, task, worker
+from durabletask.aio.client import AsyncTaskHubGrpcClient
+from durabletask.client import OrchestrationStatus
+from durabletask import task, worker
+
 
 # NOTE: These tests assume a sidecar process is running. Example command:
-#       docker run --name durabletask-sidecar -p 4001:4001 --env 'DURABLETASK_SIDECAR_LOGLEVEL=Debug' --rm cgillum/durabletask-sidecar:latest start --backend Emulator
-pytestmark = pytest.mark.e2e
+#       go install github.com/microsoft/durabletask-go@main
+#       durabletask-go --port 4001
+pytestmark = [pytest.mark.e2e, pytest.mark.anyio]
 
 
-def test_empty_orchestration():
+@pytest.fixture
+def anyio_backend():
+    return 'asyncio'
+
+
+async def test_empty_orchestration():
 
     invoked = False
 
@@ -28,22 +34,23 @@ def test_empty_orchestration():
         w.add_orchestrator(empty_orchestrator)
         w.start()
 
-        c = client.TaskHubGrpcClient()
-        id = c.schedule_new_orchestration(empty_orchestrator)
-        state = c.wait_for_orchestration_completion(id, timeout=30)
+        c = AsyncTaskHubGrpcClient()
+        id = await c.schedule_new_orchestration(empty_orchestrator)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
 
     assert invoked
     assert state is not None
     assert state.name == task.get_name(empty_orchestrator)
     assert state.instance_id == id
     assert state.failure_details is None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status is None
 
 
-def test_activity_sequence():
+async def test_activity_sequence():
 
     def plus_one(_: task.ActivityContext, input: int) -> int:
         return input + 1
@@ -62,22 +69,22 @@ def test_activity_sequence():
         w.add_activity(plus_one)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(sequence, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(
-            id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(sequence, input=1)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        await client.aclose()
 
     assert state is not None
     assert state.name == task.get_name(sequence)
     assert state.instance_id == id
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.failure_details is None
     assert state.serialized_input == json.dumps(1)
     assert state.serialized_output == json.dumps([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     assert state.serialized_custom_status is None
 
 
-def test_activity_error_handling():
+async def test_activity_error_handling():
 
     def throw(_: task.ActivityContext, input: int) -> int:
         raise RuntimeError("Kah-BOOOOM!!!")
@@ -108,21 +115,22 @@ def test_activity_error_handling():
         w.add_activity(increment_counter)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator, input=1)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        await client.aclose()
 
     assert state is not None
     assert state.name == task.get_name(orchestrator)
     assert state.instance_id == id
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_output == json.dumps("Kah-BOOOOM!!!")
     assert state.failure_details is None
     assert state.serialized_custom_status is None
     assert compensation_counter == 2
 
 
-def test_sub_orchestration_fan_out():
+async def test_sub_orchestration_fan_out():
     threadLock = threading.Lock()
     activity_counter = 0
 
@@ -151,17 +159,18 @@ def test_sub_orchestration_fan_out():
         w.add_orchestrator(parent_orchestrator)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(parent_orchestrator, input=10)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        await client.aclose()
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.failure_details is None
     assert activity_counter == 30
 
 
-def test_wait_for_multiple_external_events():
+async def test_wait_for_multiple_external_events():
     def orchestrator(ctx: task.OrchestrationContext, _):
         a = yield ctx.wait_for_external_event('A')
         b = yield ctx.wait_for_external_event('B')
@@ -174,20 +183,21 @@ def test_wait_for_multiple_external_events():
         w.start()
 
         # Start the orchestration and immediately raise events to it.
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        task_hub_client.raise_orchestration_event(id, 'A', data='a')
-        task_hub_client.raise_orchestration_event(id, 'B', data='b')
-        task_hub_client.raise_orchestration_event(id, 'C', data='c')
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator)
+        await client.raise_orchestration_event(id, 'A', data='a')
+        await client.raise_orchestration_event(id, 'B', data='b')
+        await client.raise_orchestration_event(id, 'C', data='c')
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        await client.aclose()
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_output == json.dumps(['a', 'b', 'c'])
 
 
 @pytest.mark.parametrize("raise_event", [True, False])
-def test_wait_for_external_event_timeout(raise_event: bool):
+async def test_wait_for_external_event_timeout(raise_event: bool):
     def orchestrator(ctx: task.OrchestrationContext, _):
         approval: task.Task[bool] = ctx.wait_for_external_event('Approval')
         timeout = ctx.create_timer(timedelta(seconds=3))
@@ -203,21 +213,22 @@ def test_wait_for_external_event_timeout(raise_event: bool):
         w.start()
 
         # Start the orchestration and immediately raise events to it.
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator)
         if raise_event:
-            task_hub_client.raise_orchestration_event(id, 'Approval')
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+            await client.raise_orchestration_event(id, 'Approval')
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        await client.aclose()
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     if raise_event:
         assert state.serialized_output == json.dumps("approved")
     else:
         assert state.serialized_output == json.dumps("timed out")
 
 
-def test_suspend_and_resume():
+async def test_suspend_and_resume():
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield ctx.wait_for_external_event("my_event")
         return result
@@ -227,36 +238,37 @@ def test_suspend_and_resume():
         w.add_orchestrator(orchestrator)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator)
+        state = await client.wait_for_orchestration_start(id, timeout=30)
         assert state is not None
 
         # Suspend the orchestration and wait for it to go into the SUSPENDED state
-        task_hub_client.suspend_orchestration(id)
-        while state.runtime_status == client.OrchestrationStatus.RUNNING:
-            time.sleep(0.1)
-            state = task_hub_client.get_orchestration_state(id)
+        await client.suspend_orchestration(id)
+        while state.runtime_status == OrchestrationStatus.RUNNING:
+            await asyncio.sleep(0.1)
+            state = await client.get_orchestration_state(id)
             assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
+        assert state.runtime_status == OrchestrationStatus.SUSPENDED
 
         # Raise an event to the orchestration and confirm that it does NOT complete
-        task_hub_client.raise_orchestration_event(id, "my_event", data=42)
+        await client.raise_orchestration_event(id, "my_event", data=42)
         try:
-            state = task_hub_client.wait_for_orchestration_completion(id, timeout=3)
+            state = await client.wait_for_orchestration_completion(id, timeout=3)
             assert False, "Orchestration should not have completed"
         except TimeoutError:
             pass
 
         # Resume the orchestration and wait for it to complete
-        task_hub_client.resume_orchestration(id)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        await client.resume_orchestration(id)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.runtime_status == OrchestrationStatus.COMPLETED
         assert state.serialized_output == json.dumps(42)
+        await client.aclose()
 
 
-def test_terminate():
+async def test_terminate():
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield ctx.wait_for_external_event("my_event")
         return result
@@ -266,71 +278,59 @@ def test_terminate():
         w.add_orchestrator(orchestrator)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator)
+        state = await client.wait_for_orchestration_start(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.RUNNING
+        assert state.runtime_status == OrchestrationStatus.RUNNING
 
-        task_hub_client.terminate_orchestration(id, output="some reason for termination")
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        await client.terminate_orchestration(id, output="some reason for termination")
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.TERMINATED
+        assert state.runtime_status == OrchestrationStatus.TERMINATED
         assert state.serialized_output == json.dumps("some reason for termination")
+        await client.aclose()
 
 
-def test_terminate_recursive():
-    thread_lock = threading.Lock()
-    activity_counter = 0
-    delay_time = 4  # seconds
+async def test_terminate_recursive():
+    def root(ctx: task.OrchestrationContext, _):
+        result = yield ctx.call_sub_orchestrator(child)
+        return result
 
-    def increment(ctx, _):
-        with thread_lock:
-            nonlocal activity_counter
-            activity_counter += 1
-        raise Exception("Failed: Should not have executed the activity")
+    def child(ctx: task.OrchestrationContext, _):
+        result = yield ctx.wait_for_external_event("my_event")
+        return result
 
-    def orchestrator_child(ctx: task.OrchestrationContext, activity_count: int):
-        due_time = ctx.current_utc_datetime + timedelta(seconds=delay_time)
-        yield ctx.create_timer(due_time)
-        yield ctx.call_activity(increment)
+    # Start a worker, which will connect to the sidecar in a background thread
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(root)
+        w.add_orchestrator(child)
+        w.start()
 
-    def parent_orchestrator(ctx: task.OrchestrationContext, count: int):
-        tasks = []
-        for _ in range(count):
-            tasks.append(ctx.call_sub_orchestrator(orchestrator_child, input=count))
-        yield task.when_all(tasks)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(root)
+        state = await client.wait_for_orchestration_start(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == OrchestrationStatus.RUNNING
 
-    for recurse in [True, False]:
-        with worker.TaskHubGrpcWorker() as w:
-            w.add_activity(increment)
-            w.add_orchestrator(orchestrator_child)
-            w.add_orchestrator(parent_orchestrator)
-            w.start()
+        # Terminate root orchestration(recursive set to True by default)
+        await client.terminate_orchestration(id, output="some reason for termination")
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == OrchestrationStatus.TERMINATED
 
-            task_hub_client = client.TaskHubGrpcClient()
-            instance_id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=5)
+        # Verify that child orchestration is also terminated
+        await client.wait_for_orchestration_completion(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == OrchestrationStatus.TERMINATED
 
-            time.sleep(2)
-
-            output = "Recursive termination = {recurse}"
-            task_hub_client.terminate_orchestration(instance_id, output=output, recursive=recurse)
-
-            metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
-
-            assert metadata is not None
-            assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
-            assert metadata.serialized_output == f'"{output}"'
-
-            time.sleep(delay_time)
-
-            if recurse:
-                assert activity_counter == 0, "Activity should not have executed with recursive termination"
-            else:
-                assert activity_counter == 5, "Activity should have executed without recursive termination"
+        await client.purge_orchestration(id)
+        state = await client.get_orchestration_state(id)
+        assert state is None
+        await client.aclose()
 
 
-def test_continue_as_new():
+async def test_continue_as_new():
     all_results = []
 
     def orchestrator(ctx: task.OrchestrationContext, input: int):
@@ -350,26 +350,24 @@ def test_continue_as_new():
         w.add_orchestrator(orchestrator)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator, input=0)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=1)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=2)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=3)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=4)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=5)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(orchestrator, input=0)
+        await client.raise_orchestration_event(id, "my_event", data=1)
+        await client.raise_orchestration_event(id, "my_event", data=2)
+        await client.raise_orchestration_event(id, "my_event", data=3)
+        await client.raise_orchestration_event(id, "my_event", data=4)
+        await client.raise_orchestration_event(id, "my_event", data=5)
 
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.runtime_status == OrchestrationStatus.COMPLETED
         assert state.serialized_output == json.dumps(all_results)
         assert state.serialized_input == json.dumps(4)
         assert all_results == [1, 2, 3, 4, 5]
+        await client.aclose()
 
 
-# NOTE: This test fails when running against durabletask-go with sqlite because the sqlite backend does not yet
-#       support orchestration ID reuse. This gap is being tracked here:
-#       https://github.com/microsoft/durabletask-go/issues/42
-def test_retry_policies():
+async def test_retry_policies():
     # This test verifies that the retry policies are working as expected.
     # It does this by creating an orchestration that calls a sub-orchestrator,
     # which in turn calls an activity that always fails.
@@ -410,11 +408,11 @@ def test_retry_policies():
         w.add_activity(throw_activity_with_retry)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(parent_orchestrator_with_retry)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.FAILED
+        assert state.runtime_status == OrchestrationStatus.FAILED
         assert state.failure_details is not None
         assert state.failure_details.error_type == "TaskFailedError"
         assert state.failure_details.message.startswith("Sub-orchestration task #1 failed:")
@@ -422,9 +420,10 @@ def test_retry_policies():
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 9
         assert child_orch_counter == 3
+        await client.aclose()
 
 
-def test_retry_timeout():
+async def test_retry_timeout():
     # This test verifies that the retry timeout is working as expected.
     # Max number of attempts is 5 and retry timeout is 14 seconds.
     # Total seconds consumed till 4th attempt is 1 + 2 + 4 + 8 = 15 seconds.
@@ -450,19 +449,20 @@ def test_retry_timeout():
         w.add_activity(throw_activity)
         w.start()
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(mock_orchestrator)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        client = AsyncTaskHubGrpcClient()
+        id = await client.schedule_new_orchestration(mock_orchestrator)
+        state = await client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.FAILED
+        assert state.runtime_status == OrchestrationStatus.FAILED
         assert state.failure_details is not None
         assert state.failure_details.error_type == "TaskFailedError"
         assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 4
+        await client.aclose()
 
 
-def test_custom_status():
+async def test_custom_status():
 
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
         ctx.set_custom_status("foobaz")
@@ -472,15 +472,16 @@ def test_custom_status():
         w.add_orchestrator(empty_orchestrator)
         w.start()
 
-        c = client.TaskHubGrpcClient()
-        id = c.schedule_new_orchestration(empty_orchestrator)
-        state = c.wait_for_orchestration_completion(id, timeout=30)
+        c = AsyncTaskHubGrpcClient()
+        id = await c.schedule_new_orchestration(empty_orchestrator)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
 
     assert state is not None
     assert state.name == task.get_name(empty_orchestrator)
     assert state.instance_id == id
     assert state.failure_details is None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status == "\"foobaz\""

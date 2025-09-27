@@ -283,6 +283,7 @@ class CompositeTask(Task[T]):
     def on_child_completed(self, task: Task[T]):
         pass
 
+
 class WhenAllTask(CompositeTask[list[T]]):
     """A task that completes when all of its child tasks complete."""
 
