@@ -2,16 +2,19 @@ from unittest.mock import patch, ANY, Mock
 
 from durabletask.client import TaskHubGrpcClient
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
-from durabletask.internal.shared import (get_default_host_address,
-                                         get_grpc_channel)
+from durabletask.internal.shared import get_default_host_address, get_grpc_channel
 import pytest
+
 
 @pytest.mark.parametrize("timeout", [None, 0, 5])
 def test_wait_for_orchestration_start_timeout(timeout):
     instance_id = "test-instance"
 
-    from durabletask.internal.orchestrator_service_pb2 import GetInstanceResponse, \
-        OrchestrationState, ORCHESTRATION_STATUS_RUNNING
+    from durabletask.internal.orchestrator_service_pb2 import (
+        GetInstanceResponse,
+        OrchestrationState,
+        ORCHESTRATION_STATUS_RUNNING,
+    )
 
     response = GetInstanceResponse()
     state = OrchestrationState()
@@ -30,16 +33,20 @@ def test_wait_for_orchestration_start_timeout(timeout):
     c._stub.WaitForInstanceStart.assert_called_once()
     _, kwargs = c._stub.WaitForInstanceStart.call_args
     if timeout is None or timeout == 0:
-        assert kwargs.get('timeout') is None
+        assert kwargs.get("timeout") is None
     else:
-        assert kwargs.get('timeout') == timeout
+        assert kwargs.get("timeout") == timeout
+
 
 @pytest.mark.parametrize("timeout", [None, 0, 5])
 def test_wait_for_orchestration_completion_timeout(timeout):
     instance_id = "test-instance"
 
-    from durabletask.internal.orchestrator_service_pb2 import GetInstanceResponse, \
-        OrchestrationState, ORCHESTRATION_STATUS_COMPLETED
+    from durabletask.internal.orchestrator_service_pb2 import (
+        GetInstanceResponse,
+        OrchestrationState,
+        ORCHESTRATION_STATUS_COMPLETED,
+    )
 
     response = GetInstanceResponse()
     state = OrchestrationState()
@@ -58,6 +65,6 @@ def test_wait_for_orchestration_completion_timeout(timeout):
     c._stub.WaitForInstanceCompletion.assert_called_once()
     _, kwargs = c._stub.WaitForInstanceCompletion.call_args
     if timeout is None or timeout == 0:
-        assert kwargs.get('timeout') is None
+        assert kwargs.get("timeout") is None
     else:
-        assert kwargs.get('timeout') == timeout
+        assert kwargs.get("timeout") == timeout

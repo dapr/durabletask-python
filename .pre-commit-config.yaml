@@ -1,0 +1,38 @@
+# Pre-commit configuration for durabletask-python
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.2.2
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-protobuf]
+        args: [--config-file=mypy.ini]
+        files: ^durabletask/
+        exclude: ^durabletask/internal/.*_pb2\.py$
+
+  - repo: local
+    hooks:
+      - id: pytest-asyncio
+        name: Run asyncio tests
+        entry: python -m pytest tests/aio/ -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]  # Only run on git push, not every commit
+
+
+

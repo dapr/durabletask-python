@@ -1,23 +1,26 @@
 """End-to-end sample that demonstrates how to configure an orchestrator
 that a dynamic number activity functions in parallel, waits for them all
 to complete, and prints an aggregate summary of the outputs."""
+import os
 import random
 import time
 
 from durabletask import client, task, worker
+
+os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
 
 
 def get_work_items(ctx: task.ActivityContext, _) -> list[str]:
     """Activity function that returns a list of work items"""
     # return a random number of work items
     count = random.randint(2, 10)
-    print(f'generating {count} work items...')
-    return [f'work item {i}' for i in range(count)]
+    print(f"generating {count} work items...")
+    return [f"work item {i}" for i in range(count)]
 
 
 def process_work_item(ctx: task.ActivityContext, item: str) -> int:
     """Activity function that returns a result for a given work item"""
-    print(f'processing work item: {item}')
+    print(f"processing work item: {item}")
 
     # simulate some work that takes a variable amount of time
     time.sleep(random.random() * 5)
@@ -39,9 +42,9 @@ def orchestrator(ctx: task.OrchestrationContext, _):
 
     # return an aggregate summary of the results
     return {
-        'work_items': work_items,
-        'results': results,
-        'total': sum(results),
+        "work_items": work_items,
+        "results": results,
+        "total": sum(results),
     }
 
 
@@ -57,6 +60,6 @@ with worker.TaskHubGrpcWorker() as w:
     instance_id = c.schedule_new_orchestration(orchestrator)
     state = c.wait_for_orchestration_completion(instance_id, timeout=30)
     if state and state.runtime_status == client.OrchestrationStatus.COMPLETED:
-        print(f'Orchestration completed! Result: {state.serialized_output}')
+        print(f"Orchestration completed! Result: {state.serialized_output}")
     elif state:
-        print(f'Orchestration failed: {state.failure_details}')
+        print(f"Orchestration failed: {state.failure_details}")

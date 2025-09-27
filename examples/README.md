@@ -16,6 +16,14 @@ All the examples assume that you have a Durable Task-compatible sidecar running 
 
 ## Running the examples
 
+First, install the examples' dependencies (installs the local durabletask package in editable mode):
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
 With one of the sidecars running, you can simply execute any of the examples in this directory using `python3`:
 
 ```sh
@@ -23,6 +31,21 @@ python3 ./activity_sequence.py
 ```
 
 In some cases, the sample may require command-line parameters or user inputs. In these cases, the sample will print out instructions on how to proceed.
+
+### Configure gRPC endpoint (optional)
+
+Set the sidecar endpoint via `DURABLETASK_GRPC_ENDPOINT` if not using the default. Common ports:
+
+```sh
+# DurableTask-Go emulator
+export DURABLETASK_GRPC_ENDPOINT=localhost:4001
+
+# Dapr sidecar
+export DURABLETASK_GRPC_ENDPOINT=localhost:50001
+
+# Alternate sidecar used in some tests
+export DURABLETASK_GRPC_ENDPOINT=127.0.0.1:56178
+```
 
 ## List of examples
 
