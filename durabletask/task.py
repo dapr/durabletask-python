@@ -146,13 +146,10 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def call_activity(
-        self,
-        activity: Union[Activity[TInput, TOutput], str],
-        *,
-        input: Optional[TInput] = None,
-        retry_policy: Optional[RetryPolicy] = None,
-    ) -> Task[TOutput]:
+    def call_activity(self, activity: Union[Activity[TInput, TOutput], str], *,
+                      input: Optional[TInput] = None,
+                      retry_policy: Optional[RetryPolicy] = None,
+                      app_id: Optional[str] = None) -> Task[TOutput]:
         """Schedule an activity for execution.
 
         Parameters
@@ -163,6 +160,8 @@ class OrchestrationContext(ABC):
             The JSON-serializable input (or None) to pass to the activity.
         retry_policy: Optional[RetryPolicy]
             The retry policy to use for this activity call.
+        app_id: Optional[str]
+            The app ID that will execute the activity. If not specified, the activity will be executed by the same app as the orchestrator.
 
         Returns
         -------
@@ -172,14 +171,11 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def call_sub_orchestrator(
-        self,
-        orchestrator: Orchestrator[TInput, TOutput],
-        *,
-        input: Optional[TInput] = None,
-        instance_id: Optional[str] = None,
-        retry_policy: Optional[RetryPolicy] = None,
-    ) -> Task[TOutput]:
+    def call_sub_orchestrator(self, orchestrator: Orchestrator[TInput, TOutput], *,
+                              input: Optional[TInput] = None,
+                              instance_id: Optional[str] = None,
+                              retry_policy: Optional[RetryPolicy] = None,
+                              app_id: Optional[str] = None) -> Task[TOutput]:
         """Schedule sub-orchestrator function for execution.
 
         Parameters
@@ -193,6 +189,8 @@ class OrchestrationContext(ABC):
             random UUID will be used.
         retry_policy: Optional[RetryPolicy]
             The retry policy to use for this sub-orchestrator call.
+        app_id: Optional[str]
+            The app ID that will execute the sub-orchestrator. If not specified, the sub-orchestrator will be executed by the same app as the orchestrator.
 
         Returns
         -------
