@@ -13,12 +13,7 @@ from durabletask import task, worker
 # NOTE: These tests assume a sidecar process is running. Example command:
 #       go install github.com/microsoft/durabletask-go@main
 #       durabletask-go --port 4001
-pytestmark = [pytest.mark.e2e, pytest.mark.anyio]
-
-
-@pytest.fixture
-def anyio_backend():
-    return 'asyncio'
+pytestmark = [pytest.mark.e2e, pytest.mark.asyncio]
 
 
 async def test_empty_orchestration():

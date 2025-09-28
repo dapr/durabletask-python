@@ -173,6 +173,7 @@ This will download the `orchestrator_service.proto` from the `microsoft/durablet
 Unit tests can be run using the following command from the project root. Unit tests _don't_ require a sidecar process to be running.
 
 ```sh
+pip3 install -r dev-requirements.txt
 make test-unit
 ```
 
@@ -188,6 +189,7 @@ durabletask-go --port 4001
 To run the E2E tests, run the following command from the project root:
 
 ```sh
+pip3 install -r dev-requirements.txt
 make test-e2e
 ```
 
