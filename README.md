@@ -360,6 +360,28 @@ out = await ctx.call_sub_orchestrator(child_fn, input=payload)
 now = ctx.now(); rid = ctx.random().random(); uid = ctx.uuid4()
 ```
 
+- Workflow metadata and info:
+```python
+# Read-only info snapshot (Temporal-style convenience)
+info = ctx.info
+print(f"Workflow: {info.workflow_name}, Instance: {info.instance_id}")
+print(f"Replaying: {info.is_replaying}, Suspended: {info.is_suspended}")
+
+# Or access properties directly
+instance_id = ctx.instance_id
+is_replaying = ctx.is_replaying
+is_suspended = ctx.is_suspended
+workflow_name = ctx.workflow_name
+parent_instance_id = ctx.parent_instance_id  # for sub-orchestrators
+workflow_attempt = ctx.workflow_attempt  # retry attempt number (if available)
+
+# Execution info (internal metadata if provided by sidecar)
+exec_info = ctx.execution_info
+
+# Tracing span IDs
+span_id = ctx.orchestration_span_id  # or ctx.workflow_span_id (alias)
+```
+
 - Workflow metadata/headers (async only for now):
 ```python
 # Attach contextual metadata (e.g., tracing, tenant, app info)
@@ -373,6 +395,18 @@ headers = ctx.get_headers()
 Notes:
 - Useful for routing, observability, and cross-cutting concerns passed along activity/sub-orchestrator calls via the sidecar.
 - In python-sdk, available for both async and generator orchestrators. In this repo, currently implemented on `durabletask.aio`; generator parity is planned.
+
+- Cross-app activity/sub-orchestrator routing (async only for now):
+```python
+# Route activity to a different app via app_id
+result = await ctx.call_activity("process", input=data, app_id="worker-app-2")
+
+# Route sub-orchestrator to a different app
+child_result = await ctx.call_sub_orchestrator("child_workflow", input=data, app_id="orchestrator-app-2")
+```
+Notes:
+- The `app_id` parameter enables multi-app orchestrations where activities or child workflows run in different application instances.
+- Requires sidecar support for cross-app invocation.
 
 #### Worker readiness
 
