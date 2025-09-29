@@ -186,7 +186,7 @@ See the [examples](./examples) directory for a list of sample orchestrations and
 - `async_fanout_fanin.py` - Updated to use new `durabletask.aio` package  
 - `async_enhanced_features.py` - Comprehensive demo of all enhanced features
 - `async_non_determinism_demo.py` - Non-determinism detection demonstration
-- See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for detailed examples and usage patterns
+- See [ASYNC_ENHANCEMENTS.md](./durabletask/aio/ASYNCIO_ENHANCEMENTS.md) for detailed examples and usage patterns
 
 ## Development
 
@@ -264,7 +264,7 @@ Optional sandbox mode (`best_effort` or `strict`) patches `asyncio.sleep`, `rand
 
 In `strict` mode, `asyncio.create_task` is blocked inside workflows to preserve determinism and will raise a `SandboxViolationError` if used.
 
-> **Enhanced Sandbox Features**: The enhanced version includes comprehensive non-determinism detection, timeout support, enhanced concurrency primitives, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for complete documentation.
+> **Enhanced Sandbox Features**: The enhanced version includes comprehensive non-determinism detection, timeout support, enhanced concurrency primitives, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./durabletask/aio/ASYNCIO_ENHANCEMENTS.md) for complete documentation.
 
 #### Async patterns
 

@@ -12,6 +12,7 @@ workflow operations.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, cast
 
@@ -34,6 +35,27 @@ from .compatibility import ensure_compatibility
 
 # Generic type variable for awaitable result (module-level)
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class WorkflowInfo:
+    """
+    Read-only metadata snapshot about the running workflow execution.
+    
+    Similar to Temporal's workflow.info, this provides convenient access to
+    workflow execution metadata in a single immutable object.
+    """
+    instance_id: str
+    workflow_name: Optional[str]
+    is_replaying: bool
+    is_suspended: bool
+    parent_instance_id: Optional[str]
+    current_time: datetime
+    history_event_sequence: int
+    trace_parent: Optional[str]
+    trace_state: Optional[str]
+    orchestration_span_id: Optional[str]
+    workflow_attempt: Optional[int]
 
 
 @ensure_compatibility
@@ -142,6 +164,32 @@ class AsyncWorkflowContext(DeterministicContextMixin):
     def workflow_attempt(self) -> Optional[int]:
         """Temporary: retry attempt for this workflow if available (propagated by worker)."""
         return getattr(self._base_ctx, 'workflow_attempt', None)
+    
+    @property
+    def info(self) -> WorkflowInfo:
+        """
+        Get a read-only snapshot of workflow execution metadata.
+        
+        This provides a Temporal-style info object bundling instance_id, workflow_name,
+        is_replaying, timestamps, tracing info, and other metadata in a single immutable object.
+        Useful for deterministic logging, idempotency keys, and conditional logic based on replay state.
+        
+        Returns:
+            WorkflowInfo: Immutable dataclass with workflow execution metadata
+        """
+        return WorkflowInfo(
+            instance_id=self.instance_id,
+            workflow_name=self.workflow_name,
+            is_replaying=self.is_replaying,
+            is_suspended=self.is_suspended,
+            parent_instance_id=self.parent_instance_id,
+            current_time=self.current_utc_datetime,
+            history_event_sequence=self.history_event_sequence,
+            trace_parent=self.trace_parent,
+            trace_state=self.trace_state,
+            orchestration_span_id=self.orchestration_span_id,
+            workflow_attempt=self.workflow_attempt,
+        )
     
     # Activity operations
     def activity(

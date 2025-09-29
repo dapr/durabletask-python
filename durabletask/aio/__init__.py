@@ -33,7 +33,7 @@ from .awaitables import (
 from .compatibility import OrchestrationContextProtocol, ensure_compatibility
 
 # Core context and driver
-from .context import AsyncWorkflowContext
+from .context import AsyncWorkflowContext, WorkflowInfo
 from .driver import CoroutineOrchestratorRunner, WorkflowFunction
 
 # Sandbox and error handling
@@ -56,6 +56,7 @@ from .sandbox import (
 __all__ = [
     # Core classes
     "AsyncWorkflowContext",
+    "WorkflowInfo",
     "CoroutineOrchestratorRunner",
     "WorkflowFunction",
 

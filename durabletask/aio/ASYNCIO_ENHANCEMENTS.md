@@ -257,29 +257,3 @@ async def workflow_with_cleanup(ctx, input_data):
    ```bash
    export DAPR_WF_DEBUG=true
    ```
-
-## Compatibility
-
-- **Backward Compatible**: All existing async workflows continue to work
-- **Upstream Compatible**: Async enhancements live under `durabletask.aio`
-- **Zero Overhead**: Default behavior has no performance impact
-- **Opt-in Features**: Enhanced features are opt-in via `sandbox_mode`
-
-## Files Added/Modified
-
-### New Files
-- `tests/durabletask/test_asyncio_compat_enhanced.py` - Comprehensive tests
-- `tests/durabletask/test_non_determinism_detection.py` - Detection tests
-- `examples/async_enhanced_features.py` - Full feature demo
-- `examples/async_non_determinism_demo.py` - Detection demo
-- `examples/README_ENHANCED.md` - Detailed documentation
-- `ASYNC_ENHANCEMENTS.md` - This file
-
-### Modified Files
-- `durabletask/aio/*` - Async package with enhanced features
-- `README.md` - Updates to reference enhancements
-
-### Unchanged Files
-- `durabletask/task.py` - No changes to core task system
-- `durabletask/worker.py` - Minimal changes for async orchestrator registration
-- `durabletask/client.py` - No changes to client API
