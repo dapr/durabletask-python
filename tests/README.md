@@ -174,13 +174,13 @@ pytest tests/durabletask/test_async_orchestrator.py -v
 ### End-to-End Tests
 ```bash
 # Full E2E test suite (requires sidecar)
-pytest tests/durabletask/test_orchestration_e2e.py -v
+pytest -q -k "e2e"
 
 # Run with Dapr sidecar (recommended)
-DURABLETASK_GRPC_ENDPOINT=localhost:50001 pytest tests/durabletask/test_orchestration_e2e.py -v
+DURABLETASK_GRPC_ENDPOINT=localhost:50001 pytest -q -k "e2e"
 
 # Run with DurableTask-Go emulator
-DURABLETASK_GRPC_ENDPOINT=localhost:4001 pytest tests/durabletask/test_orchestration_e2e.py -v
+DURABLETASK_GRPC_ENDPOINT=localhost:4001 pytest -q -k "e2e"
 ```
 
 ## Dapr-Specific Testing

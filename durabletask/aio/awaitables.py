@@ -71,7 +71,7 @@ class AwaitableBase(Awaitable[TOutput]):
 class ActivityAwaitable(AwaitableBase[TOutput]):
     """Awaitable for activity function calls."""
     
-    __slots__ = ('_ctx', '_activity_fn', '_input', '_retry_policy', '_metadata')
+    __slots__ = ('_ctx', '_activity_fn', '_input', '_retry_policy', '_app_id', '_metadata')
     
     def __init__(
         self,
@@ -80,6 +80,7 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
         *,
         input: Any = None,
         retry_policy: Any = None,
+        app_id: str | None = None,
         metadata: dict[str, str] | None = None,
     ):
         """
@@ -90,6 +91,7 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
             activity_fn: The activity function to call
             input: Input data for the activity
             retry_policy: Optional retry policy
+            app_id: Optional target app ID for routing
             metadata: Optional metadata for the activity call
         """
         super().__init__()
@@ -97,6 +99,7 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
         self._activity_fn = activity_fn
         self._input = input
         self._retry_policy = retry_policy
+        self._app_id = app_id
         self._metadata = metadata
     
     def _to_task(self) -> task.Task[Any]:
@@ -105,21 +108,30 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
         import inspect
         sig = inspect.signature(self._ctx.call_activity)
         supports_metadata = 'metadata' in sig.parameters
+        supports_app_id = 'app_id' in sig.parameters
         
         if self._retry_policy is None:
-            if supports_metadata and self._metadata is not None:
+            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
+                kwargs: dict[str, Any] = {"input": self._input}
+                if supports_metadata and self._metadata is not None:
+                    kwargs["metadata"] = self._metadata
+                if supports_app_id and self._app_id is not None:
+                    kwargs["app_id"] = self._app_id
                 return cast(task.Task[Any], self._ctx.call_activity(
-                    self._activity_fn, input=self._input, metadata=self._metadata
+                    self._activity_fn, **kwargs
                 ))
             else:
                 return cast(task.Task[Any], self._ctx.call_activity(self._activity_fn, input=self._input))
         else:
-            if supports_metadata and self._metadata is not None:
+            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
+                kwargs2: dict[str, Any] = {"input": self._input, "retry_policy": self._retry_policy}
+                if supports_metadata and self._metadata is not None:
+                    kwargs2["metadata"] = self._metadata
+                if supports_app_id and self._app_id is not None:
+                    kwargs2["app_id"] = self._app_id
                 return cast(task.Task[Any], self._ctx.call_activity(
                     self._activity_fn,
-                    input=self._input,
-                    retry_policy=self._retry_policy,
-                    metadata=self._metadata,
+                    **kwargs2,
                 ))
             else:
                 return cast(task.Task[Any], self._ctx.call_activity(
@@ -132,7 +144,7 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
 class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
     """Awaitable for sub-orchestrator calls."""
     
-    __slots__ = ('_ctx', '_workflow_fn', '_input', '_instance_id', '_retry_policy', '_metadata')
+    __slots__ = ('_ctx', '_workflow_fn', '_input', '_instance_id', '_retry_policy', '_app_id', '_metadata')
     
     def __init__(
         self,
@@ -142,6 +154,7 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
         input: Any = None,
         instance_id: Optional[str] = None,
         retry_policy: Any = None,
+        app_id: str | None = None,
         metadata: dict[str, str] | None = None,
     ):
         """
@@ -153,6 +166,7 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
             input: Input data for the sub-orchestrator
             instance_id: Optional instance ID for the sub-orchestrator
             retry_policy: Optional retry policy
+            app_id: Optional target app ID for routing
             metadata: Optional metadata for the sub-orchestrator call
         """
         super().__init__()
@@ -161,6 +175,7 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
         self._input = input
         self._instance_id = instance_id
         self._retry_policy = retry_policy
+        self._app_id = app_id
         self._metadata = metadata
     
     def _to_task(self) -> task.Task[Any]:
@@ -170,14 +185,18 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
         import inspect
         sig = inspect.signature(self._ctx.call_sub_orchestrator)
         supports_metadata = 'metadata' in sig.parameters
+        supports_app_id = 'app_id' in sig.parameters
         
         if self._retry_policy is None:
-            if supports_metadata and self._metadata is not None:
+            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
+                kwargs: dict[str, Any] = {"input": self._input, "instance_id": self._instance_id}
+                if supports_metadata and self._metadata is not None:
+                    kwargs["metadata"] = self._metadata
+                if supports_app_id and self._app_id is not None:
+                    kwargs["app_id"] = self._app_id
                 return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
                     self._workflow_fn,
-                    input=self._input,
-                    instance_id=self._instance_id,
-                    metadata=self._metadata,
+                    **kwargs,
                 ))
             else:
                 return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
@@ -186,13 +205,19 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
                     instance_id=self._instance_id,
                 ))
         else:
-            if supports_metadata and self._metadata is not None:
+            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
+                kwargs2: dict[str, Any] = {
+                    "input": self._input,
+                    "instance_id": self._instance_id,
+                    "retry_policy": self._retry_policy,
+                }
+                if supports_metadata and self._metadata is not None:
+                    kwargs2["metadata"] = self._metadata
+                if supports_app_id and self._app_id is not None:
+                    kwargs2["app_id"] = self._app_id
                 return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
                     self._workflow_fn,
-                    input=self._input,
-                    instance_id=self._instance_id,
-                    retry_policy=self._retry_policy,
-                    metadata=self._metadata,
+                    **kwargs2,
                 ))
             else:
                 return cast(task.Task[Any], self._ctx.call_sub_orchestrator(

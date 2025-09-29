@@ -52,3 +52,4 @@ export DURABLETASK_GRPC_ENDPOINT=127.0.0.1:56178
 - [Activity sequence](./activity_sequence.py): Orchestration that schedules three activity calls in a sequence.
 - [Fan-out/fan-in](./fanout_fanin.py): Orchestration that schedules a dynamic number of activity calls in parallel, waits for all of them to complete, and then performs an aggregation on the results.
 - [Human interaction](./human_interaction.py): Orchestration that waits for a human to approve an order before continuing.
+- [Non-retryable error](./async_non_retryable_error.py): Demonstrates using `NonRetryableError` to fail immediately without retries even when a retry policy is specified.

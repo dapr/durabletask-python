@@ -548,6 +548,16 @@ class _Sandbox(ContextDecorator):
         
         if self.mode == "strict" and hasattr(_asyncio, "create_task"):
             def _blocked_create_task(*args: Any, **kwargs: Any) -> None:
+                # If a coroutine object was already created by caller (e.g., create_task(dummy_coro())), close it
+                try:
+                    import inspect as _inspect
+                    if args and _inspect.iscoroutine(args[0]) and hasattr(args[0], "close"):
+                        try:
+                            args[0].close()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 raise SandboxViolationError(
                     "asyncio.create_task is not allowed in workflows (strict mode)",
                     violation_type="blocked_operation",

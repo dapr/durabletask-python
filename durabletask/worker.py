@@ -1102,7 +1102,9 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             id = self.next_sequence_number()
 
         router = pb.TaskRouter()
-        router.sourceAppID = self._app_id
+        # Only set sourceAppID if available to avoid assigning None into proto string field
+        if self._app_id is not None:
+            router.sourceAppID = self._app_id
         if app_id is not None:
             router.targetAppID = app_id
 

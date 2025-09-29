@@ -277,6 +277,58 @@ class TestWhenAllAwaitable:
         """Test that WhenAllAwaitable has __slots__."""
         assert hasattr(WhenAllAwaitable, "__slots__")
 
+    def _drive_awaitable(self, awaitable, result):
+        gen = awaitable.__await__()
+        try:
+            yielded = next(gen)
+        except StopIteration as si:  # empty fast-path
+            return si.value
+        assert isinstance(yielded, dt_task.Task) or True  # we don't strictly require type here
+        try:
+            return gen.send(result)
+        except StopIteration as si:
+            return si.value
+
+    def test_when_all_empty_fast_path(self):
+        awaitable = WhenAllAwaitable([])
+        # Should complete without yielding
+        gen = awaitable.__await__()
+        with pytest.raises(StopIteration) as si:
+            next(gen)
+        assert si.value.value == []
+
+    def test_when_all_success_and_caching(self):
+        awaitable = WhenAllAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+        results = ["r1", "r2"]
+        with patch('durabletask.task.when_all') as mock_when_all:
+            mock_when_all.return_value = Mock(spec=dt_task.Task)
+            # Simulate runtime returning results list
+            gen = awaitable.__await__()
+            _ = next(gen)
+            with pytest.raises(StopIteration) as si:
+                gen.send(results)
+            assert si.value.value == results
+        # Re-await should return cached without yielding
+        gen2 = awaitable.__await__()
+        with pytest.raises(StopIteration) as si2:
+            next(gen2)
+        assert si2.value.value == results
+
+    def test_when_all_exception_and_caching(self):
+        awaitable = WhenAllAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+        with patch('durabletask.task.when_all') as mock_when_all:
+            mock_when_all.return_value = Mock(spec=dt_task.Task)
+            gen = awaitable.__await__()
+            _ = next(gen)
+        class Boom(Exception):
+            pass
+        with pytest.raises(Boom):
+            gen.throw(Boom())
+        # Re-await should immediately raise cached exception
+        gen2 = awaitable.__await__()
+        with pytest.raises(Boom):
+            next(gen2)
+
 
 class TestWhenAnyAwaitable:
     """Test WhenAnyAwaitable functionality."""
@@ -313,6 +365,35 @@ class TestWhenAnyAwaitable:
         """Test that WhenAnyAwaitable has __slots__."""
         assert hasattr(WhenAnyAwaitable, "__slots__")
 
+    def test_when_any_winner_identity_and_proxy_get_result(self):
+        awaitable = WhenAnyAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+        with patch('durabletask.task.when_any') as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen = awaitable.__await__()
+            _ = next(gen)
+            # Simulate runtime returning that task1 completed
+            # Also give it a get_result
+            self.mock_task1.get_result = Mock(return_value="done1")
+            with pytest.raises(StopIteration) as si:
+                gen.send(self.mock_task1)
+            proxy = si.value.value
+            # Winner proxy equals original awaitable1 by identity semantics
+            assert (proxy == awaitable._tasks_like[0]) is True
+            assert proxy.get_result() == "done1"
+
+    def test_when_any_non_task_completed_sentinel(self):
+        # If runtime yields a sentinel, proxy should map to first item
+        awaitable = WhenAnyAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+        with patch('durabletask.task.when_any') as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen = awaitable.__await__()
+            _ = next(gen)
+            sentinel = object()
+            with pytest.raises(StopIteration) as si:
+                gen.send(sentinel)
+            proxy = si.value.value
+            assert (proxy == awaitable._tasks_like[0]) is True
+
 
 class TestSwallowExceptionAwaitable:
     """Test SwallowExceptionAwaitable functionality."""
@@ -341,6 +422,23 @@ class TestSwallowExceptionAwaitable:
     def test_swallow_exception_awaitable_slots(self):
         """Test that SwallowExceptionAwaitable has __slots__."""
         assert hasattr(SwallowExceptionAwaitable, "__slots__")
+
+    def test_swallow_exception_runtime_success_and_failure(self):
+        awaitable = SwallowExceptionAwaitable(self.mock_awaitable)
+        # Success path
+        gen = awaitable.__await__()
+        _ = next(gen)
+        with pytest.raises(StopIteration) as si:
+            gen.send("ok")
+        assert si.value.value == "ok"
+        # Failure path returns exception instance via StopIteration.value
+        awaitable2 = SwallowExceptionAwaitable(self.mock_awaitable)
+        gen2 = awaitable2.__await__()
+        _ = next(gen2)
+        err = RuntimeError("boom")
+        with pytest.raises(StopIteration) as si2:
+            gen2.throw(err)
+        assert si2.value.value is err
 
 
 class TestWhenAnyResultAwaitable:
@@ -377,6 +475,21 @@ class TestWhenAnyResultAwaitable:
     def test_when_any_result_awaitable_slots(self):
         """Test that WhenAnyResultAwaitable has __slots__."""
         assert hasattr(WhenAnyResultAwaitable, "__slots__")
+
+    def test_when_any_result_returns_index_and_result(self):
+        awaitable = WhenAnyResultAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+        with patch('durabletask.task.when_any') as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            # Drive __await__ and send completion of second task
+            gen = awaitable.__await__()
+            _ = next(gen)
+            # Attach a fake .result attribute like Task might have
+            self.mock_task2.result = "v2"
+            with pytest.raises(StopIteration) as si:
+                gen.send(self.mock_task2)
+            idx, result = si.value.value
+            assert idx == 1
+            assert result == "v2"
 
 
 class TestTimeoutAwaitable:
@@ -415,6 +528,111 @@ class TestTimeoutAwaitable:
     def test_timeout_awaitable_slots(self):
         """Test that TimeoutAwaitable has __slots__."""
         assert hasattr(TimeoutAwaitable, "__slots__")
+
+    def test_timeout_awaitable_timeout_hits(self):
+        awaitable = TimeoutAwaitable(self.mock_awaitable, 5.0, self.mock_ctx)
+        # Capture the cached timeout task instance created by _to_task
+        gen = awaitable.__await__()
+        _ = next(gen)
+        timeout_task = awaitable._timeout_task
+        assert timeout_task is not None
+        with pytest.raises(WorkflowTimeoutError):
+            gen.send(timeout_task)
+
+    def test_timeout_awaitable_operation_completes_first(self):
+        awaitable = TimeoutAwaitable(self.mock_awaitable, 5.0, self.mock_ctx)
+        gen = awaitable.__await__()
+        _ = next(gen)
+        # If the operation completed first, runtime returns the operation task
+        self.mock_task.result = "value"
+        with pytest.raises(StopIteration) as si:
+            gen.send(self.mock_task)
+        assert si.value.value == "value"
+
+    def test_timeout_awaitable_non_task_sentinel_heuristic(self):
+        awaitable = TimeoutAwaitable(self.mock_awaitable, 5.0, self.mock_ctx)
+        gen = awaitable.__await__()
+        _ = next(gen)
+        with pytest.raises(StopIteration) as si:
+            gen.send({"x": 1})
+        assert si.value.value == {"x": 1}
+
+
+class TestPropagationForActivityAndSubOrch:
+    """Test propagation of app_id/metadata/retry_policy to context methods via signature detection."""
+
+    class _CtxWithSignatures:
+        def __init__(self):
+            self.call_activity_called_with = None
+            self.call_sub_orchestrator_called_with = None
+        def call_activity(self, activity_fn, *, input=None, retry_policy=None, app_id=None, metadata=None):
+            self.call_activity_called_with = dict(activity_fn=activity_fn, input=input, retry_policy=retry_policy, app_id=app_id, metadata=metadata)
+            return dt_task.CompletableTask()
+        def call_sub_orchestrator(self, workflow_fn, *, input=None, instance_id=None, retry_policy=None, app_id=None, metadata=None):
+            self.call_sub_orchestrator_called_with = dict(workflow_fn=workflow_fn, input=input, instance_id=instance_id, retry_policy=retry_policy, app_id=app_id, metadata=metadata)
+            return dt_task.CompletableTask()
+
+    def test_activity_propagation_app_id_metadata_retry(self):
+        ctx = self._CtxWithSignatures()
+        activity_fn = lambda: None  # noqa: E731
+        rp = dt_task.RetryPolicy(first_retry_interval=timedelta(seconds=1), max_number_of_attempts=2)
+        awaitable = ActivityAwaitable(ctx, activity_fn, input={"a": 1}, retry_policy=rp, app_id="app-x", metadata={"h": "v"})
+        _ = awaitable._to_task()
+        called = ctx.call_activity_called_with
+        assert called["activity_fn"] is activity_fn
+        assert called["input"] == {"a": 1}
+        assert called["retry_policy"] is rp
+        assert called["app_id"] == "app-x"
+        assert called["metadata"] == {"h": "v"}
+
+    def test_suborch_propagation_all_fields(self):
+        ctx = self._CtxWithSignatures()
+        workflow_fn = lambda: None  # noqa: E731
+        rp = dt_task.RetryPolicy(first_retry_interval=timedelta(seconds=1), max_number_of_attempts=2)
+        awaitable = SubOrchestratorAwaitable(ctx, workflow_fn, input=123, instance_id="iid-1", retry_policy=rp, app_id="app-y", metadata={"k": "m"})
+        _ = awaitable._to_task()
+        called = ctx.call_sub_orchestrator_called_with
+        assert called["workflow_fn"] is workflow_fn
+        assert called["input"] == 123
+        assert called["instance_id"] == "iid-1"
+        assert called["retry_policy"] is rp
+        assert called["app_id"] == "app-y"
+        assert called["metadata"] == {"k": "m"}
+
+
+class TestExternalEventIntegration:
+    """Integration-like tests combining ExternalEventAwaitable with when_any/timeout wrappers."""
+
+    def setup_method(self):
+        self.ctx = Mock()
+        # Provide stable task instances for mapping
+        self.event_task = Mock(spec=dt_task.Task)
+        self.timer_task = Mock(spec=dt_task.Task)
+        self.ctx.wait_for_external_event.return_value = self.event_task
+        self.ctx.create_timer.return_value = self.timer_task
+
+    def test_when_any_between_event_and_timer_event_wins(self):
+        event_aw = ExternalEventAwaitable(self.ctx, "ev")
+        timer_aw = SleepAwaitable(self.ctx, 1.0)
+        wa = WhenAnyAwaitable([event_aw, timer_aw])
+        with patch('durabletask.task.when_any') as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen = wa.__await__()
+            _ = next(gen)
+            with pytest.raises(StopIteration) as si:
+                gen.send(self.event_task)
+            proxy = si.value.value
+            assert (proxy == wa._tasks_like[0]) is True
+
+    def test_timeout_wrapper_times_out_before_event(self):
+        event_aw = ExternalEventAwaitable(self.ctx, "ev")
+        tw = TimeoutAwaitable(event_aw, 2.0, self.ctx)
+        gen = tw.__await__()
+        _ = next(gen)
+        # Should have cached timeout task equal to ctx.create_timer return
+        assert tw._timeout_task is self.timer_task
+        with pytest.raises(WorkflowTimeoutError):
+            gen.send(self.timer_task)
 
 
 class TestAwaitableSlots:

@@ -11,9 +11,8 @@ Tests marked with @pytest.mark.e2e require a running Dapr sidecar
 or DurableTask-Go emulator and are skipped by default.
 """
 
-import asyncio
-from datetime import datetime, timedelta
-from unittest.mock import Mock, PropertyMock
+from datetime import datetime
+from unittest.mock import Mock
 
 import pytest
 
@@ -426,7 +425,7 @@ class TestAsyncWorkflowIntegration:
         
         # Test successful case
         gen_success = runner.to_generator(async_ctx, False)
-        activity_task = next(gen_success)
+        _ = next(gen_success)
         
         try:
             gen_success.send("activity_result")
@@ -544,19 +543,19 @@ class TestAsyncWorkflowIntegration:
         gen = runner.to_generator(async_ctx, config)
         
         # Step 1: Initialize
-        init_task = next(gen)
+        _ = next(gen)
         
         # Step 2: Parallel processing (when_all)
-        when_all_task = gen.send("initialized")
+        _ = gen.send("initialized")
         
         # Step 3: Approval with timeout (when_any)
-        when_any_task = gen.send(["batch_1_result", "batch_2_result"])
+        _ = gen.send(["batch_1_result", "batch_2_result"])
         
         # Simulate approval received
         approval_data = {"approved": True, "user": "admin"}
         
         # Step 4: Sub-orchestrator
-        sub_task = gen.send(approval_data)
+        _ = gen.send(approval_data)
         
         # Complete workflow
         try:
@@ -597,7 +596,7 @@ class TestAsyncWorkflowIntegration:
         async_ctx1 = AsyncWorkflowContext(self.fake_ctx)
         gen1 = runner.to_generator(async_ctx1, "test_input")
         
-        activity_task1 = next(gen1)
+        _ = next(gen1)
         
         try:
             gen1.send("activity_result")
@@ -608,7 +607,7 @@ class TestAsyncWorkflowIntegration:
         async_ctx2 = AsyncWorkflowContext(self.fake_ctx)
         gen2 = runner.to_generator(async_ctx2, "test_input")
         
-        activity_task2 = next(gen2)
+        _ = next(gen2)
         
         try:
             gen2.send("activity_result")
@@ -617,3 +616,98 @@ class TestAsyncWorkflowIntegration:
         
         # Results should be identical (deterministic)
         assert result1 == result2
+
+
+class TestSandboxIntegration:
+    """Integration tests for sandbox functionality."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_base_ctx = Mock()
+        self.mock_base_ctx.instance_id = "test-instance"
+        self.mock_base_ctx.current_utc_datetime = datetime(2023, 1, 1, 12, 0, 0)
+        self.mock_base_ctx.call_activity.return_value = Mock(spec=dt_task.Task)
+        self.mock_base_ctx.create_timer.return_value = Mock(spec=dt_task.Task)
+
+    def test_sandbox_with_async_workflow_context(self):
+        """Test sandbox integration with AsyncWorkflowContext."""
+        import random
+        import time
+        import uuid
+
+        from durabletask.aio import sandbox_scope
+        
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        
+        with sandbox_scope(async_ctx, "best_effort"):
+            # Should work with real AsyncWorkflowContext
+            test_random = random.random()
+            test_uuid = uuid.uuid4()
+            test_time = time.time()
+            
+            assert isinstance(test_random, float)
+            assert isinstance(test_uuid, uuid.UUID)
+            assert isinstance(test_time, float)
+
+    def test_sandbox_warning_detection(self):
+        """Test that sandbox properly issues warnings."""
+        import warnings
+
+        from durabletask.aio import NonDeterminismWarning, sandbox_scope
+        
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            
+            with sandbox_scope(async_ctx, "best_effort"):
+                # This should potentially trigger warnings if non-deterministic calls are detected
+                pass
+            
+            # Check if any NonDeterminismWarning was issued
+            # May or may not have warnings depending on implementation
+            _ = [warning for warning in w if issubclass(warning.category, NonDeterminismWarning)]
+
+    def test_sandbox_performance_impact(self):
+        """Test that sandbox doesn't have excessive performance impact."""
+        import random
+        import time as time_module
+
+        from durabletask.aio import sandbox_scope
+        
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        # Ensure debug mode is OFF for performance testing
+        async_ctx._debug_mode = False
+
+        # Measure without sandbox
+        start = time_module.perf_counter()
+        for _ in range(1000):
+            random.random()
+        no_sandbox_time = time_module.perf_counter() - start
+
+        # Measure with sandbox
+        start = time_module.perf_counter()
+        with sandbox_scope(async_ctx, "best_effort"):
+            for _ in range(1000):
+                random.random()
+        sandbox_time = time_module.perf_counter() - start
+
+        # Sandbox should not be more than 20x slower (reasonable overhead for patching + minimal tracing)
+        # In practice, the overhead comes from function call interception and deterministic RNG
+        assert sandbox_time < no_sandbox_time * 20, f"Sandbox: {sandbox_time:.6f}s, No sandbox: {no_sandbox_time:.6f}s"
+
+    def test_sandbox_mode_validation(self):
+        """Test sandbox mode validation."""
+        from durabletask.aio import sandbox_scope
+        
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        
+        # Valid modes should work
+        for mode in ["off", "best_effort", "strict"]:
+            with sandbox_scope(async_ctx, mode):
+                pass
+        
+        # Invalid mode should raise error
+        with pytest.raises(ValueError):
+            with sandbox_scope(async_ctx, "invalid"):
+                pass

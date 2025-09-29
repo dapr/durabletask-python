@@ -20,7 +20,6 @@ from typing import (
     Optional,
     Protocol,
     TypeVar,
-    Union,
     cast,
     runtime_checkable,
 )

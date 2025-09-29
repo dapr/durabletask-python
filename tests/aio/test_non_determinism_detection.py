@@ -11,7 +11,6 @@ import pytest
 from durabletask import task as dt_task
 from durabletask.aio import (
     AsyncWorkflowContext,
-    AsyncWorkflowError,
     NonDeterminismWarning,
     SandboxViolationError,
     _NonDeterminismDetector,
@@ -68,7 +67,7 @@ class TestNonDeterminismDetection:
 
     def test_sandbox_with_non_determinism_detection_best_effort(self):
         """Test that detection works in best_effort mode."""
-        with warnings.catch_warnings(record=True) as w:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
 
             with sandbox_scope(self.async_ctx, "best_effort"):
@@ -189,6 +188,156 @@ class TestNonDeterminismIntegration:
             # This documents the limitation
             assert isinstance(now_result, datetime.datetime)
             assert isinstance(deterministic_time, datetime.datetime)
+
+    def test_rng_whitelist_and_global_random_determinism(self):
+        """ctx.random() methods allowed; global random.* is patched to deterministic in strict/best_effort."""
+        import random
+
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        # Strict: ctx.random().randint allowed
+        with sandbox_scope(async_ctx, "strict"):
+            rng = async_ctx.random()
+            assert isinstance(rng.randint(1, 3), int)
+
+        # Strict: global random.randint patched and deterministic
+        with sandbox_scope(async_ctx, "strict"):
+            v1 = random.randint(1, 1000000)
+        with sandbox_scope(async_ctx, "strict"):
+            v2 = random.randint(1, 1000000)
+        assert v1 == v2
+
+        # Best-effort: global random warns but returns
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            with sandbox_scope(async_ctx, "best_effort"):
+                val1 = random.random()
+            with sandbox_scope(async_ctx, "best_effort"):
+                val2 = random.random()
+            assert isinstance(val1, float)
+            assert val1 == val2
+            # Note: we intentionally don't assert on collected warnings here to keep the test
+            # resilient across environments where tracing may not capture stdlib frames.
+
+    def test_uuid_and_os_urandom_strict_behavior(self):
+        """uuid.uuid4 is patched to deterministic; os.urandom is blocked in strict; ctx.uuid4 allowed."""
+        import os
+        import uuid as _uuid
+
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        # Allowed via deterministic helper
+        with sandbox_scope(async_ctx, "strict"):
+            val = async_ctx.uuid4()
+            assert isinstance(val, _uuid.UUID)
+
+        # Patched global uuid.uuid4 is deterministic
+        with sandbox_scope(async_ctx, "strict"):
+            u1 = _uuid.uuid4()
+        with sandbox_scope(async_ctx, "strict"):
+            u2 = _uuid.uuid4()
+        assert isinstance(u1, _uuid.UUID)
+        assert u1 == u2
+
+        if hasattr(os, "urandom"):
+            with pytest.raises(SandboxViolationError):
+                with sandbox_scope(async_ctx, "strict"):
+                    _ = os.urandom(8)
+
+    @pytest.mark.asyncio
+    async def test_create_task_blocked_in_strict_and_closed_coroutines(self):
+        """asyncio.create_task is blocked in strict; ensure no unawaited coroutine warning leaks."""
+        import asyncio
+
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        async def dummy():
+            return 42
+
+        # Blocked in strict
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            with pytest.raises(SandboxViolationError):
+                with sandbox_scope(async_ctx, "strict"):
+                    asyncio.create_task(dummy())
+            # Ensure no "coroutine was never awaited" RuntimeWarning leaked
+            assert not any("was never awaited" in str(rec.message) for rec in w)
+
+        # Also blocked when passing a ready Future
+        fut = asyncio.get_event_loop().create_future()
+        fut.set_result(1)
+        with pytest.raises(SandboxViolationError):
+            with sandbox_scope(async_ctx, "strict"):
+                asyncio.create_task(fut)  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_create_task_allowed_in_best_effort(self):
+        """In best_effort mode, create_task should be allowed and runnable."""
+        import asyncio
+
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        async def quick():
+            # sleep(0) is passed through to original sleep in sandbox
+            await asyncio.sleep(0)
+            return "ok"
+
+        with sandbox_scope(async_ctx, "best_effort"):
+            t = asyncio.create_task(quick())
+            assert await t == "ok"
+
+    def test_helper_methods_allowed_in_strict(self):
+        """Ensure helper methods use whitelisted deterministic RNG in strict mode."""
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        with sandbox_scope(async_ctx, "strict"):
+            s = async_ctx.random_string(5)
+            assert len(s) == 5
+            n = async_ctx.random_int(1, 3)
+            assert 1 <= n <= 3
+            choice = async_ctx.random_choice(["a", "b", "c"])
+            assert choice in {"a", "b", "c"}
+
+    @pytest.mark.asyncio
+    async def test_gather_variants_and_caching(self):
+        """Exercise patched asyncio.gather paths: empty, all-workflow, mixed with return_exceptions, and caching."""
+        import asyncio
+
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        with sandbox_scope(async_ctx, "best_effort"):
+            # Empty gather returns [], cache replay on re-await
+            g0 = asyncio.gather()
+            r0a = await g0
+            r0b = await g0
+            assert r0a == [] and r0b == []
+
+            # All workflow awaitables (sleep -> WhenAll path)
+            a1 = async_ctx.sleep(0)
+            a2 = async_ctx.sleep(0)
+            g1 = asyncio.gather(a1, a2)
+            # Do not await g1: constructing it covers the all-workflow branch without
+            # requiring a real orchestrator; ensure it is awaitable (one-shot wrapper)
+            assert hasattr(g1, "__await__")
+
+            # Mixed inputs with return_exceptions True
+            async def boom():
+                raise RuntimeError("x")
+
+            async def small():
+                await asyncio.sleep(0)
+                return "ok"
+
+            # Mixed native coroutines path (no workflow awaitables)
+            g2 = asyncio.gather(small(), boom(), return_exceptions=True)
+            r2 = await g2
+            assert len(r2) == 2 and isinstance(r2[1], Exception)
+
+    def test_invalid_mode_raises(self):
+        async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        with pytest.raises(ValueError):
+            with sandbox_scope(async_ctx, "invalid_mode"):
+                pass
 
 
 if __name__ == "__main__":

@@ -150,6 +150,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         *,
         input: Any = None,
         retry_policy: Any = None,
+        app_id: Optional[str] = None,
         metadata: dict[str, str] | None = None,
     ) -> ActivityAwaitable[Any]:
         """
@@ -170,6 +171,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             cast(Callable[..., Any], activity_fn),
             input=input,
             retry_policy=retry_policy,
+            app_id=app_id,
             metadata=metadata,
         )
     
@@ -179,6 +181,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         *,
         input: Any = None,
         retry_policy: Any = None,
+        app_id: Optional[str] = None,
         metadata: dict[str, str] | None = None,
     ) -> ActivityAwaitable[Any]:
         """Alias for activity() method for API compatibility."""
@@ -186,6 +189,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             activity_fn,
             input=input,
             retry_policy=retry_policy,
+            app_id=app_id,
             metadata=metadata,
         )
     
@@ -197,6 +201,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         input: Any = None,
         instance_id: Optional[str] = None,
         retry_policy: Any = None,
+        app_id: Optional[str] = None,
         metadata: dict[str, str] | None = None,
     ) -> SubOrchestratorAwaitable[Any]:
         """
@@ -223,6 +228,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             input=input,
             instance_id=instance_id,
             retry_policy=retry_policy,
+            app_id=app_id,
             metadata=metadata,
         )
     
@@ -233,6 +239,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         input: Any = None,
         instance_id: Optional[str] = None,
         retry_policy: Any = None,
+        app_id: Optional[str] = None,
         metadata: dict[str, str] | None = None,
     ) -> SubOrchestratorAwaitable[Any]:
         """Call a sub-orchestrator workflow (durabletask naming convention)."""
@@ -241,6 +248,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             input=input,
             instance_id=instance_id,
             retry_policy=retry_policy,
+            app_id=app_id,
             metadata=metadata,
         )
     

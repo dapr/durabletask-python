@@ -6,6 +6,32 @@
 
 This repo contains a Python client SDK for use with the [Durable Task Framework for Go](https://github.com/microsoft/durabletask-go) and [Dapr Workflow](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/). With this SDK, you can define, schedule, and manage durable orchestrations using ordinary Python code.
 
+> **🚀 Enhanced Async Features**: This fork includes comprehensive async workflow enhancements with advanced error handling, non-determinism detection, timeout support, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for details.
+
+## Quick Start - Async Workflows
+
+For async workflow development, use the new `durabletask.aio` package:
+
+```python
+from durabletask.aio import AsyncWorkflowContext
+from durabletask.worker import TaskHubGrpcWorker
+
+async def my_workflow(ctx: AsyncWorkflowContext, name: str) -> str:
+    result = await ctx.call_activity(say_hello, input=name)
+    await ctx.sleep(1.0)
+    return f"Workflow completed: {result}"
+
+def say_hello(ctx, name: str) -> str:
+    return f"Hello, {name}!"
+
+# Register and run
+with TaskHubGrpcWorker() as worker:
+    worker.add_activity(say_hello)
+    worker.add_orchestrator(my_workflow)
+    worker.start()
+    # ... schedule workflows with client
+```
+
 ⚠️ **This SDK is currently under active development and is not yet ready for production use.** ⚠️
 
 > Note that this project is **not** currently affiliated with the [Durable Functions](https://docs.microsoft.com/azure/azure-functions/durable/durable-functions-overview) project for Azure Functions. If you are looking for a Python SDK for Durable Functions, please see [this repo](https://github.com/Azure/azure-functions-durable-python).
@@ -155,6 +181,13 @@ python3 -m pip install .
 
 See the [examples](./examples) directory for a list of sample orchestrations and instructions on how to run them.
 
+**Enhanced Async Examples:**
+- `async_activity_sequence.py` - Updated to use new `durabletask.aio` package
+- `async_fanout_fanin.py` - Updated to use new `durabletask.aio` package  
+- `async_enhanced_features.py` - Comprehensive demo of all enhanced features
+- `async_non_determinism_demo.py` - Non-determinism detection demonstration
+- See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for detailed examples and usage patterns
+
 ## Development
 
 The following is more information about how to develop this project. Note that development commands require that `make` is installed on your local machine. If you're using Windows, you can install `make` using [Chocolatey](https://chocolatey.org/) or use WSL.
@@ -207,32 +240,41 @@ export DURABLETASK_GRPC_ENDPOINT=localhost:4001
 export DURABLETASK_GRPC_ENDPOINT=localhost:50001
 ```
 
-### Async authoring compatibility
+### Async workflow authoring
 
-You can author orchestrators with `async def` using `add_async_orchestrator`, which provides awaitables for activities, timers, external events, and when_all/any:
+For a deeper tour of the async authoring surface (determinism helpers, sandbox modes, timeouts, concurrency patterns), see the Async Enhancements guide: [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md). The developer-facing migration notes are in [DEVELOPER_TRANSITION_GUIDE.md](./DEVELOPER_TRANSITION_GUIDE.md).
+
+You can author orchestrators with `async def` using the new `durabletask.aio` package, which provides a comprehensive async workflow API:
 
 ```python
 from durabletask.worker import TaskHubGrpcWorker
+from durabletask.aio import AsyncWorkflowContext
 
-async def my_orch(ctx, input):
-    r1 = await ctx.activity("act1", input=input)
-    await ctx.sleep(1)
-    r2 = await ctx.activity("act2", input=r1)
+async def my_orch(ctx: AsyncWorkflowContext, input) -> str:
+    r1 = await ctx.call_activity(act1, input=input)
+    await ctx.sleep(1.0)
+    r2 = await ctx.call_activity(act2, input=r1)
     return r2
 
 with TaskHubGrpcWorker() as worker:
-    worker.add_async_orchestrator(my_orch, name="my_orch", sandbox_mode="off")
+    worker.add_orchestrator(my_orch)
 ```
 
 Optional sandbox mode (`best_effort` or `strict`) patches `asyncio.sleep`, `random`, `uuid.uuid4`, and `time.time` within the workflow step to deterministic equivalents. This is best-effort and not a correctness guarantee.
 
-In `strict` mode, `asyncio.create_task` is blocked inside workflows to preserve determinism and will raise a `RuntimeError` if used.
+In `strict` mode, `asyncio.create_task` is blocked inside workflows to preserve determinism and will raise a `SandboxViolationError` if used.
+
+> **Enhanced Sandbox Features**: The enhanced version includes comprehensive non-determinism detection, timeout support, enhanced concurrency primitives, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for complete documentation.
 
 #### Async patterns
 
+- Activities and sub-orchestrations can be referenced by function object or by their registered string name. Both forms are supported:
+- Function reference (preferred for IDE/type support) or string name (useful across modules/languages).
+
 - Activities:
 ```python
-result = await ctx.activity("process", input={"x": 1})
+result = await ctx.call_activity("process", input={"x": 1})
+# or: result = await ctx.call_activity(process, input={"x": 1})
 ```
 
 - Timers:
@@ -247,15 +289,70 @@ val = await ctx.wait_for_external_event("approval")
 
 - Concurrency:
 ```python
-t1 = ctx.activity("a"); t2 = ctx.activity("b")
+t1 = ctx.call_activity("a"); t2 = ctx.call_activity("b")
 await ctx.when_all([t1, t2])
 winner = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(5)])
+
+# gather combines awaitables and preserves order
+results = await ctx.gather(t1, t2)
+# gather with exception capture
+results_or_errors = await ctx.gather(t1, t2, return_exceptions=True)
+```
+
+#### Async vs. generator API differences
+
+- Async authoring (`durabletask.aio`): awaiting returns the operation's value. Exceptions are raised on `await` (no `is_failed`).
+- Generator authoring (`durabletask.task`): yielding returns `Task` objects. Use `get_result()` to read values; failures surface via `is_failed()` or by raising on `get_result()`.
+
+Examples:
+
+```python
+# Async authoring (await returns value)
+# when_any returns a proxy that compares equal to the original awaitable
+# and exposes get_result() for the completed item.
+approval = ctx.wait_for_external_event("approval")
+winner = await ctx.when_any([approval, ctx.sleep(60)])
+if winner == approval:
+    details = winner.get_result()
+```
+
+```python
+# Async authoring (index + result)
+idx, result = await ctx.when_any_with_result([approval, ctx.sleep(60)])
+if idx == 0:  # approval won
+    details = result
+```
+
+```python
+# Generator authoring (yield returns Task)
+approval = ctx.wait_for_external_event("approval")
+winner = yield task.when_any([approval, ctx.create_timer(timedelta(seconds=60))])
+if winner == approval:
+    details = approval.get_result()
+```
+
+Failure handling in async:
+
+```python
+try:
+    val = await ctx.call_activity("might_fail")
+except Exception as e:
+    # handle failure branch
+    ...
+```
+
+Or capture with gather:
+
+```python
+res = await ctx.gather(ctx.call_activity("a"), return_exceptions=True)
+if isinstance(res[0], Exception):
+    ...
 ```
 
 - Sub-orchestrations (function reference or registered name):
 ```python
-out = await ctx.sub_orchestrator(child_fn, input=payload)
-# or: out = await ctx.sub_orchestrator("child", input=payload)
+out = await ctx.call_sub_orchestrator(child_fn, input=payload)
+# or: out = await ctx.call_sub_orchestrator("child", input=payload)
 ```
 
 - Deterministic utilities:
@@ -263,13 +360,27 @@ out = await ctx.sub_orchestrator(child_fn, input=payload)
 now = ctx.now(); rid = ctx.random().random(); uid = ctx.uuid4()
 ```
 
+- Workflow metadata/headers (async only for now):
+```python
+# Attach contextual metadata (e.g., tracing, tenant, app info)
+ctx.set_metadata({"x-trace": trace_id, "tenant": "acme"})
+md = ctx.get_metadata()
+
+# Header aliases (same data)
+ctx.set_headers({"region": "us-east"})
+headers = ctx.get_headers()
+```
+Notes:
+- Useful for routing, observability, and cross-cutting concerns passed along activity/sub-orchestrator calls via the sidecar.
+- In python-sdk, available for both async and generator orchestrators. In this repo, currently implemented on `durabletask.aio`; generator parity is planned.
+
 #### Worker readiness
 
 When starting a worker and scheduling immediately, wait for the connection to the sidecar to be established:
 
 ```python
 with TaskHubGrpcWorker() as worker:
-    worker.add_async_orchestrator(my_orch, name="my_orch")
+    worker.add_orchestrator(my_orch)
     worker.start()
     worker.wait_for_ready(timeout=5)
     # Now safe to schedule

@@ -1,1 +1,6 @@
-grpcio-tools==1.62.3 # 1.62.X is the latest version before protobuf 1.26.X is used which has breaking changes for Python
+pytest-asyncio>=0.23
+pytest
+pytest-cov
+autopep8
+grpcio>=1.74.0
+protobuf>=6.31.1
