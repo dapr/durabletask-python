@@ -15,8 +15,84 @@ from durabletask import client, task, worker
 pytestmark = pytest.mark.e2e
 
 
-def test_empty_orchestration():
+def _debug_log_state_transitions(
+    hub_client: client.TaskHubGrpcClient, instance_id: str, seconds: int = 10, interval: float = 0.5
+) -> None:
+    """Utility to log orchestration state transitions for debugging.
 
+    Polls get_orchestration_state and prints any changes for up to `seconds`.
+    """
+    deadline = time.time() + seconds
+    last = None
+    print(f'[E2E DEBUG] Begin state polling for {instance_id} for up to {seconds}s')
+    while time.time() < deadline:
+        try:
+            st = hub_client.get_orchestration_state(instance_id, fetch_payloads=True)
+            cur = None if st is None else st.runtime_status
+            if cur != last:
+                print(f'[E2E DEBUG] State now: {cur}')
+                last = cur
+            # Diagnostics: currently active threads
+            try:
+                import threading as _threading
+
+                threads = _threading.enumerate()
+                thread_names = ', '.join(t.name for t in threads[:10])
+                print(f'[E2E DEBUG] Threads active: {len(threads)} [{thread_names}]')
+            except Exception as _e:
+                print(f'[E2E DEBUG] Thread enum error: {_e}')
+            # Diagnostics: asyncio tasks if a loop is running
+            try:
+                import asyncio as _asyncio
+
+                try:
+                    loop = _asyncio.get_running_loop()
+                    tasks = list(_asyncio.all_tasks(loop))
+                    print(f'[E2E DEBUG] asyncio tasks: {len(tasks)}')
+                except RuntimeError:
+                    # No running loop in this thread
+                    pass
+            except Exception as _e2:
+                print(f'[E2E DEBUG] asyncio diag error: {_e2}')
+            if st is not None and cur in (
+                client.OrchestrationStatus.COMPLETED,
+                client.OrchestrationStatus.FAILED,
+                client.OrchestrationStatus.TERMINATED,
+            ):
+                print('[E2E DEBUG] Reached terminal state during polling')
+                break
+        except Exception as e:
+            print(f'[E2E DEBUG] Polling error: {e}')
+        time.sleep(interval)
+
+
+def _wait_until_terminal(
+    hub_client: client.TaskHubGrpcClient,
+    instance_id: str,
+    *,
+    timeout_s: int = 30,
+    fetch_payloads: bool = True,
+) -> client.OrchestrationState | None:
+    """Polling-based completion wait that does not rely on the completion stream.
+
+    Returns the terminal state or None if timeout.
+    """
+    deadline = time.time() + timeout_s
+    delay = 0.1
+    while time.time() < deadline:
+        st = hub_client.get_orchestration_state(instance_id, fetch_payloads=fetch_payloads)
+        if st and st.runtime_status in (
+            client.OrchestrationStatus.COMPLETED,
+            client.OrchestrationStatus.FAILED,
+            client.OrchestrationStatus.TERMINATED,
+        ):
+            return st
+        time.sleep(delay)
+        delay = min(delay * 1.5, 1.0)
+    return None
+
+
+def test_empty_orchestration():
     invoked = False
 
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
@@ -27,10 +103,11 @@ def test_empty_orchestration():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        c = client.TaskHubGrpcClient()
-        id = c.schedule_new_orchestration(empty_orchestrator)
-        state = c.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as c:
+            id = c.schedule_new_orchestration(empty_orchestrator)
+            state = c.wait_for_orchestration_completion(id, timeout=30)
 
     assert invoked
     assert state is not None
@@ -44,7 +121,6 @@ def test_empty_orchestration():
 
 
 def test_activity_sequence():
-
     def plus_one(_: task.ActivityContext, input: int) -> int:
         return input + 1
 
@@ -61,11 +137,11 @@ def test_activity_sequence():
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(sequence, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(
-            id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(sequence, input=1)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.name == task.get_name(sequence)
@@ -78,9 +154,8 @@ def test_activity_sequence():
 
 
 def test_activity_error_handling():
-
     def throw(_: task.ActivityContext, input: int) -> int:
-        raise RuntimeError("Kah-BOOOOM!!!")
+        raise RuntimeError('Kah-BOOOOM!!!')
 
     compensation_counter = 0
 
@@ -89,7 +164,7 @@ def test_activity_error_handling():
         compensation_counter += 1
 
     def orchestrator(ctx: task.OrchestrationContext, input: int):
-        error_msg = ""
+        error_msg = ''
         try:
             yield ctx.call_activity(throw, input=input)
         except task.TaskFailedError as e:
@@ -107,16 +182,17 @@ def test_activity_error_handling():
         w.add_activity(throw)
         w.add_activity(increment_counter)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.name == task.get_name(orchestrator)
     assert state.instance_id == id
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-    assert state.serialized_output == json.dumps("Kah-BOOOOM!!!")
+    assert state.serialized_output == json.dumps('Kah-BOOOOM!!!')
     assert state.failure_details is None
     assert state.serialized_custom_status is None
     assert compensation_counter == 2
@@ -139,8 +215,7 @@ def test_sub_orchestration_fan_out():
         # Fan out to multiple sub-orchestrations
         tasks = []
         for _ in range(count):
-            tasks.append(ctx.call_sub_orchestrator(
-                orchestrator_child, input=3))
+            tasks.append(ctx.call_sub_orchestrator(orchestrator_child, input=3))
         # Wait for all sub-orchestrations to complete
         yield task.when_all(tasks)
 
@@ -150,10 +225,11 @@ def test_sub_orchestration_fan_out():
         w.add_orchestrator(orchestrator_child)
         w.add_orchestrator(parent_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
@@ -172,6 +248,7 @@ def test_wait_for_multiple_external_events():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
@@ -186,97 +263,98 @@ def test_wait_for_multiple_external_events():
     assert state.serialized_output == json.dumps(['a', 'b', 'c'])
 
 
-@pytest.mark.parametrize("raise_event", [True, False])
+@pytest.mark.parametrize('raise_event', [True, False])
 def test_wait_for_external_event_timeout(raise_event: bool):
     def orchestrator(ctx: task.OrchestrationContext, _):
         approval: task.Task[bool] = ctx.wait_for_external_event('Approval')
         timeout = ctx.create_timer(timedelta(seconds=3))
         winner = yield task.when_any([approval, timeout])
         if winner == approval:
-            return "approved"
+            return 'approved'
         else:
-            return "timed out"
+            return 'timed out'
 
     # Start a worker, which will connect to the sidecar in a background thread
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        if raise_event:
-            task_hub_client.raise_orchestration_event(id, 'Approval')
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            if raise_event:
+                task_hub_client.raise_orchestration_event(id, 'Approval')
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
     if raise_event:
-        assert state.serialized_output == json.dumps("approved")
+        assert state.serialized_output == json.dumps('approved')
     else:
-        assert state.serialized_output == json.dumps("timed out")
+        assert state.serialized_output == json.dumps('timed out')
 
 
 def test_suspend_and_resume():
     def orchestrator(ctx: task.OrchestrationContext, _):
-        result = yield ctx.wait_for_external_event("my_event")
+        result = yield ctx.wait_for_external_event('my_event')
         return result
 
     # Start a worker, which will connect to the sidecar in a background thread
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
-
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
-        assert state is not None
-
-        # Suspend the orchestration and wait for it to go into the SUSPENDED state
-        task_hub_client.suspend_orchestration(id)
-        while state.runtime_status == client.OrchestrationStatus.RUNNING:
-            time.sleep(0.1)
-            state = task_hub_client.get_orchestration_state(id)
+        w.wait_for_ready(timeout=10)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
             assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
 
-        # Raise an event to the orchestration and confirm that it does NOT complete
-        task_hub_client.raise_orchestration_event(id, "my_event", data=42)
-        try:
-            state = task_hub_client.wait_for_orchestration_completion(id, timeout=3)
-            assert False, "Orchestration should not have completed"
-        except TimeoutError:
-            pass
+            # Suspend the orchestration and wait for it to go into the SUSPENDED state
+            task_hub_client.suspend_orchestration(id)
+            while state.runtime_status == client.OrchestrationStatus.RUNNING:
+                time.sleep(0.1)
+                state = task_hub_client.get_orchestration_state(id)
+                assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
 
-        # Resume the orchestration and wait for it to complete
-        task_hub_client.resume_orchestration(id)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-        assert state.serialized_output == json.dumps(42)
+            # Raise an event to the orchestration and confirm that it does NOT complete
+            task_hub_client.raise_orchestration_event(id, 'my_event', data=42)
+            try:
+                state = task_hub_client.wait_for_orchestration_completion(id, timeout=3)
+                assert False, 'Orchestration should not have completed'
+            except TimeoutError:
+                pass
+
+            # Resume the orchestration and wait for it to complete
+            task_hub_client.resume_orchestration(id)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+            assert state.serialized_output == json.dumps(42)
 
 
 def test_terminate():
     def orchestrator(ctx: task.OrchestrationContext, _):
-        result = yield ctx.wait_for_external_event("my_event")
+        result = yield ctx.wait_for_external_event('my_event')
         return result
 
     # Start a worker, which will connect to the sidecar in a background thread
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.RUNNING
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.RUNNING
-
-        task_hub_client.terminate_orchestration(id, output="some reason for termination")
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.TERMINATED
-        assert state.serialized_output == json.dumps("some reason for termination")
+            task_hub_client.terminate_orchestration(id, output='some reason for termination')
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.TERMINATED
+            assert state.serialized_output == json.dumps('some reason for termination')
 
 
 def test_terminate_recursive():
@@ -288,7 +366,7 @@ def test_terminate_recursive():
         with thread_lock:
             nonlocal activity_counter
             activity_counter += 1
-        raise Exception("Failed: Should not have executed the activity")
+        raise Exception('Failed: Should not have executed the activity')
 
     def orchestrator_child(ctx: task.OrchestrationContext, activity_count: int):
         due_time = ctx.current_utc_datetime + timedelta(seconds=delay_time)
@@ -307,35 +385,44 @@ def test_terminate_recursive():
             w.add_orchestrator(orchestrator_child)
             w.add_orchestrator(parent_orchestrator)
             w.start()
+            w.wait_for_ready(timeout=10)
+            with client.TaskHubGrpcClient() as task_hub_client:
+                instance_id = task_hub_client.schedule_new_orchestration(
+                    parent_orchestrator, input=5
+                )
 
-            task_hub_client = client.TaskHubGrpcClient()
-            instance_id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=5)
+                time.sleep(2)
 
-            time.sleep(2)
+                output = 'Recursive termination = {recurse}'
+                task_hub_client.terminate_orchestration(
+                    instance_id, output=output, recursive=recurse
+                )
 
-            output = "Recursive termination = {recurse}"
-            task_hub_client.terminate_orchestration(instance_id, output=output, recursive=recurse)
+                metadata = task_hub_client.wait_for_orchestration_completion(
+                    instance_id, timeout=30
+                )
 
+                assert metadata is not None
+                assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
+                assert metadata.serialized_output == f'"{output}"'
 
-            metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
+                time.sleep(delay_time)
 
-            assert metadata is not None
-            assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
-            assert metadata.serialized_output == f'"{output}"'
-
-            time.sleep(delay_time)
-
-            if recurse:
-                assert activity_counter == 0, "Activity should not have executed with recursive termination"
-            else:
-                assert activity_counter == 5, "Activity should have executed without recursive termination"
+                if recurse:
+                    assert (
+                        activity_counter == 0
+                    ), 'Activity should not have executed with recursive termination'
+                else:
+                    assert (
+                        activity_counter == 5
+                    ), 'Activity should have executed without recursive termination'
 
 
 def test_continue_as_new():
     all_results = []
 
     def orchestrator(ctx: task.OrchestrationContext, input: int):
-        result = yield ctx.wait_for_external_event("my_event")
+        result = yield ctx.wait_for_external_event('my_event')
         if not ctx.is_replaying:
             # NOTE: Real orchestrations should never interact with nonlocal variables like this.
             nonlocal all_results  # noqa: F824
@@ -350,14 +437,15 @@ def test_continue_as_new():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=0)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=1)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=2)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=3)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=4)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=5)
+        task_hub_client.raise_orchestration_event(id, 'my_event', data=1)
+        task_hub_client.raise_orchestration_event(id, 'my_event', data=2)
+        task_hub_client.raise_orchestration_event(id, 'my_event', data=3)
+        task_hub_client.raise_orchestration_event(id, 'my_event', data=4)
+        task_hub_client.raise_orchestration_event(id, 'my_event', data=5)
 
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
@@ -387,7 +475,8 @@ def test_retry_policies():
         max_number_of_attempts=3,
         backoff_coefficient=1,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=30))
+        retry_timeout=timedelta(seconds=30),
+    )
 
     def parent_orchestrator_with_retry(ctx: task.OrchestrationContext, _):
         yield ctx.call_sub_orchestrator(child_orchestrator_with_retry, retry_policy=retry_policy)
@@ -403,13 +492,14 @@ def test_retry_policies():
     def throw_activity_with_retry(ctx: task.ActivityContext, _):
         nonlocal throw_activity_counter
         throw_activity_counter += 1
-        raise RuntimeError("Kah-BOOOOM!!!")
+        raise RuntimeError('Kah-BOOOOM!!!')
 
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(parent_orchestrator_with_retry)
         w.add_orchestrator(child_orchestrator_with_retry)
         w.add_activity(throw_activity_with_retry)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
@@ -417,9 +507,9 @@ def test_retry_policies():
         assert state is not None
         assert state.runtime_status == client.OrchestrationStatus.FAILED
         assert state.failure_details is not None
-        assert state.failure_details.error_type == "TaskFailedError"
-        assert state.failure_details.message.startswith("Sub-orchestration task #1 failed:")
-        assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
+        assert state.failure_details.error_type == 'TaskFailedError'
+        assert state.failure_details.message.startswith('Sub-orchestration task #1 failed:')
+        assert state.failure_details.message.endswith('Activity task #1 failed: Kah-BOOOOM!!!')
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 9
         assert child_orch_counter == 3
@@ -436,7 +526,8 @@ def test_retry_timeout():
         max_number_of_attempts=5,
         backoff_coefficient=2,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=14))
+        retry_timeout=timedelta(seconds=14),
+    )
 
     def mock_orchestrator(ctx: task.OrchestrationContext, _):
         yield ctx.call_activity(throw_activity, retry_policy=retry_policy)
@@ -444,12 +535,13 @@ def test_retry_timeout():
     def throw_activity(ctx: task.ActivityContext, _):
         nonlocal throw_activity_counter
         throw_activity_counter += 1
-        raise RuntimeError("Kah-BOOOOM!!!")
+        raise RuntimeError('Kah-BOOOOM!!!')
 
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(mock_orchestrator)
         w.add_activity(throw_activity)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(mock_orchestrator)
@@ -457,16 +549,15 @@ def test_retry_timeout():
         assert state is not None
         assert state.runtime_status == client.OrchestrationStatus.FAILED
         assert state.failure_details is not None
-        assert state.failure_details.error_type == "TaskFailedError"
-        assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
+        assert state.failure_details.error_type == 'TaskFailedError'
+        assert state.failure_details.message.endswith('Activity task #1 failed: Kah-BOOOOM!!!')
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 4
 
 
 def test_custom_status():
-
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
-        ctx.set_custom_status("foobaz")
+        ctx.set_custom_status('foobaz')
 
     # Start a worker, which will connect to the sidecar in a background thread
     with worker.TaskHubGrpcWorker() as w:
@@ -484,4 +575,133 @@ def test_custom_status():
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == "\"foobaz\""
+    assert state.serialized_custom_status == '"foobaz"'
+
+
+def test_async_suspend_and_resume_e2e():
+    import os
+
+    async def orch(ctx, _):
+        val = await ctx.wait_for_external_event('x')
+        return val
+
+    # Respect pre-configured endpoint; default only if not set
+    os.environ.setdefault('DURABLETASK_GRPC_ENDPOINT', 'localhost:4001')
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orch)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        with client.TaskHubGrpcClient() as c:
+            id = c.schedule_new_orchestration(orch)
+            state = c.wait_for_orchestration_start(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.RUNNING
+
+            # Suspend then ensure it goes to SUSPENDED
+            c.suspend_orchestration(id)
+            while True:
+                st = c.get_orchestration_state(id)
+                assert st is not None
+                if st.runtime_status == client.OrchestrationStatus.SUSPENDED:
+                    break
+                time.sleep(0.1)
+
+            # Raise event while suspended, then resume and expect completion
+            print(f'[E2E DEBUG] Raising event for {id}')
+            c.raise_orchestration_event(id, 'x', data=42)
+            print(f'[E2E DEBUG] Resuming orchestration {id}')
+            c.resume_orchestration(id)
+
+            # Check state before waiting for completion
+            print(f'[E2E DEBUG] Checking state before wait_for_completion')
+            pre_state = c.get_orchestration_state(id)
+            print(
+                f"[E2E DEBUG] Pre-completion state: {pre_state.runtime_status if pre_state else 'None'}"
+            )
+
+            print(f'[E2E DEBUG] Starting polling-based completion wait (30s)')
+            _debug_log_state_transitions(c, id, seconds=10, interval=0.5)
+            state = _wait_until_terminal(c, id, timeout_s=30, fetch_payloads=True)
+        assert state is not None
+        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.serialized_output == json.dumps(42)
+
+
+def test_async_sub_orchestrator_e2e():
+    async def child(ctx, x: int):
+        return x + 1
+
+    async def parent(ctx, x: int):
+        y = await ctx.call_sub_orchestrator(child, input=x)
+        return y * 2
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(child)
+        w.add_orchestrator(parent)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        with client.TaskHubGrpcClient() as c:
+            print(f'[E2E DEBUG] Scheduling parent orchestration')
+            id = c.schedule_new_orchestration(parent, input=3)
+            print(f'[E2E DEBUG] Scheduled orchestration with ID: {id}')
+
+            # Check initial state
+            initial_state = c.get_orchestration_state(id)
+            print(
+                f"[E2E DEBUG] Initial state: {initial_state.runtime_status if initial_state else 'None'}"
+            )
+
+            print(f'[E2E DEBUG] Starting polling-based completion wait (30s)')
+            _debug_log_state_transitions(c, id, seconds=10, interval=0.5)
+            state = _wait_until_terminal(c, id, timeout_s=30, fetch_payloads=True)
+
+    assert state is not None
+    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.failure_details is None
+    assert state.serialized_output == json.dumps(8)
+
+
+def test_e2e_activity_receives_trace_context():
+    import os
+
+    pytest.skip(
+        'Trace context not yet provided by sidecar; enable when sidecar emits trace_parent/trace_state/span id'
+    )
+
+    def probe(ctx: task.ActivityContext, _):
+        return {'tp': ctx.trace_parent, 'ts': ctx.trace_state}
+
+    async def orch(ctx: task.OrchestrationContext, _):
+        return await ctx.call_activity(probe)
+
+    os.environ.setdefault('DURABLETASK_GRPC_ENDPOINT', 'localhost:4001')
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_activity(probe)
+        w.add_orchestrator(orch)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        with client.TaskHubGrpcClient() as c:
+            print(f'[E2E DEBUG] Scheduling trace context orchestration')
+            id = c.schedule_new_orchestration(orch)
+            print(f'[E2E DEBUG] Scheduled orchestration with ID: {id}')
+
+            # Check initial state
+            initial_state = c.get_orchestration_state(id)
+            print(
+                f"[E2E DEBUG] Initial state: {initial_state.runtime_status if initial_state else 'None'}"
+            )
+
+            print(f'[E2E DEBUG] Starting polling-based completion wait (30s)')
+            _debug_log_state_transitions(c, id, seconds=10, interval=0.5)
+            state = _wait_until_terminal(c, id, timeout_s=30, fetch_payloads=True)
+
+    assert state is not None
+    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    out = json.loads(state.serialized_output or '{}')
+    # Trace fields should be present as strings; may be empty depending on sidecar config
+    assert isinstance(out.get('tp'), str)
+    assert (out.get('ts') is None) or isinstance(out.get('ts'), str)

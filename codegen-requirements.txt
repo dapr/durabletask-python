@@ -1,0 +1,2 @@
+grpcio-tools==1.62.3 # codegen only; conflicts with protobuf>=6 at runtime
+

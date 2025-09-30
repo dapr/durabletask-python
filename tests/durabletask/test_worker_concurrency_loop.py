@@ -28,8 +28,9 @@ class DummyRequest:
         self.newEvents = []
 
     def HasField(self, field):
-        return (field == 'orchestratorRequest' and self.kind == 'orchestrator') or \
-               (field == 'activityRequest' and self.kind == 'activity')
+        return (field == 'orchestratorRequest' and self.kind == 'orchestrator') or (
+            field == 'activityRequest' and self.kind == 'activity'
+        )
 
     def WhichOneof(self, _):
         return f'{self.kind}Request'
@@ -67,16 +68,23 @@ def test_worker_concurrency_loop_sync():
         # Start the worker manager's run loop in the background
         worker_task = asyncio.create_task(worker._async_worker_manager.run())
         for req in orchestrator_requests:
-            worker._async_worker_manager.submit_orchestration(dummy_orchestrator, req, stub, DummyCompletionToken())
+            worker._async_worker_manager.submit_orchestration(
+                dummy_orchestrator, req, stub, DummyCompletionToken()
+            )
         for req in activity_requests:
-            worker._async_worker_manager.submit_activity(dummy_activity, req, stub, DummyCompletionToken())
+            worker._async_worker_manager.submit_activity(
+                dummy_activity, req, stub, DummyCompletionToken()
+            )
         await asyncio.sleep(1.0)
         orchestrator_count = sum(1 for t, _ in stub.completed if t == 'orchestrator')
         activity_count = sum(1 for t, _ in stub.completed if t == 'activity')
-        assert orchestrator_count == 3, f"Expected 3 orchestrator completions, got {orchestrator_count}"
-        assert activity_count == 4, f"Expected 4 activity completions, got {activity_count}"
+        assert (
+            orchestrator_count == 3
+        ), f'Expected 3 orchestrator completions, got {orchestrator_count}'
+        assert activity_count == 4, f'Expected 4 activity completions, got {activity_count}'
         worker._async_worker_manager._shutdown = True
         await worker_task
+
     asyncio.run(run_test())
 
 
@@ -84,13 +92,13 @@ def test_worker_concurrency_loop_sync():
 def dummy_orchestrator(ctx, input):
     # Simulate some work
     time.sleep(0.1)
-    return "orchestrator-done"
+    return 'orchestrator-done'
 
 
 def dummy_activity(ctx, input):
     # Simulate some work
     time.sleep(0.1)
-    return "activity-done"
+    return 'activity-done'
 
 
 def test_worker_concurrency_sync():
@@ -115,13 +123,14 @@ def test_worker_concurrency_sync():
             time.sleep(0.1)
             with lock:
                 results.append((kind, idx))
-            return f"{kind}-{idx}-done"
+            return f'{kind}-{idx}-done'
+
         return fn
 
     # Submit more work than concurrency allows
     for i in range(5):
-        manager.submit_orchestration(make_work("orch", i))
-        manager.submit_activity(make_work("act", i))
+        manager.submit_orchestration(make_work('orch', i))
+        manager.submit_activity(make_work('act', i))
 
     # Run the manager loop in a thread (sync context)
     def run_manager():

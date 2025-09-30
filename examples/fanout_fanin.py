@@ -1,10 +1,13 @@
 """End-to-end sample that demonstrates how to configure an orchestrator
 that a dynamic number activity functions in parallel, waits for them all
 to complete, and prints an aggregate summary of the outputs."""
+import os
 import random
 import time
 
 from durabletask import client, task, worker
+
+os.environ.setdefault('DURABLETASK_GRPC_ENDPOINT', 'localhost:4001')
 
 
 def get_work_items(ctx: task.ActivityContext, _) -> list[str]:

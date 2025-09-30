@@ -26,8 +26,9 @@ class DummyRequest:
         self.newEvents = []
 
     def HasField(self, field):
-        return (field == 'orchestratorRequest' and self.kind == 'orchestrator') or \
-               (field == 'activityRequest' and self.kind == 'activity')
+        return (field == 'orchestratorRequest' and self.kind == 'orchestrator') or (
+            field == 'activityRequest' and self.kind == 'activity'
+        )
 
     def WhichOneof(self, _):
         return f'{self.kind}Request'
@@ -66,15 +67,22 @@ def test_worker_concurrency_loop_async():
         stub.completed.clear()
         worker_task = asyncio.create_task(grpc_worker._async_worker_manager.run())
         for req in orchestrator_requests:
-            grpc_worker._async_worker_manager.submit_orchestration(dummy_orchestrator, req, stub, DummyCompletionToken())
+            grpc_worker._async_worker_manager.submit_orchestration(
+                dummy_orchestrator, req, stub, DummyCompletionToken()
+            )
         for req in activity_requests:
-            grpc_worker._async_worker_manager.submit_activity(dummy_activity, req, stub, DummyCompletionToken())
+            grpc_worker._async_worker_manager.submit_activity(
+                dummy_activity, req, stub, DummyCompletionToken()
+            )
         await asyncio.sleep(1.0)
         orchestrator_count = sum(1 for t, _ in stub.completed if t == 'orchestrator')
         activity_count = sum(1 for t, _ in stub.completed if t == 'activity')
-        assert orchestrator_count == 3, f"Expected 3 orchestrator completions, got {orchestrator_count}"
-        assert activity_count == 4, f"Expected 4 activity completions, got {activity_count}"
+        assert (
+            orchestrator_count == 3
+        ), f'Expected 3 orchestrator completions, got {orchestrator_count}'
+        assert activity_count == 4, f'Expected 4 activity completions, got {activity_count}'
         grpc_worker._async_worker_manager._shutdown = True
         await worker_task
+
     asyncio.run(run_test())
     asyncio.run(run_test())
