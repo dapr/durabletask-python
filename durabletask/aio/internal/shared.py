@@ -10,7 +10,7 @@ from durabletask.internal.shared import (
 )
 
 
-AioClientInterceptor = Union[
+ClientInterceptor = Union[
     grpc_aio.UnaryUnaryClientInterceptor,
     grpc_aio.UnaryStreamClientInterceptor,
     grpc_aio.StreamUnaryClientInterceptor,
@@ -21,7 +21,7 @@ AioClientInterceptor = Union[
 def get_grpc_aio_channel(
         host_address: Optional[str],
         secure_channel: bool = False,
-        interceptors: Optional[Sequence[AioClientInterceptor]] = None) -> grpc_aio.Channel:
+        interceptors: Optional[Sequence[ClientInterceptor]] = None) -> grpc_aio.Channel:
 
     if host_address is None:
         host_address = get_default_host_address()

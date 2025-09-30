@@ -1,6 +1,6 @@
 from unittest.mock import ANY, patch
 
-from durabletask.aio.internal.grpc_interceptor import DefaultAioClientInterceptorImpl
+from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorImpl
 from durabletask.internal.shared import get_default_host_address
 from durabletask.aio.internal.shared import get_grpc_aio_channel
 from durabletask.aio.client import AsyncTaskHubGrpcClient
@@ -8,7 +8,7 @@ from durabletask.aio.client import AsyncTaskHubGrpcClient
 
 HOST_ADDRESS = 'localhost:50051'
 METADATA = [('key1', 'value1'), ('key2', 'value2')]
-INTERCEPTORS_AIO = [DefaultAioClientInterceptorImpl(METADATA)]
+INTERCEPTORS_AIO = [DefaultClientInterceptorImpl(METADATA)]
 
 
 def test_get_grpc_aio_channel_insecure():
@@ -40,7 +40,7 @@ def test_get_grpc_aio_channel_with_interceptors():
         assert args[0] == HOST_ADDRESS
         assert 'interceptors' in kwargs
         interceptors = kwargs['interceptors']
-        assert isinstance(interceptors[0], DefaultAioClientInterceptorImpl)
+        assert isinstance(interceptors[0], DefaultClientInterceptorImpl)
         assert interceptors[0]._metadata == METADATA
 
 
@@ -99,5 +99,5 @@ def test_async_client_construct_with_metadata():
         assert args[0] == HOST_ADDRESS
         assert 'interceptors' in kwargs
         interceptors = kwargs['interceptors']
-        assert isinstance(interceptors[0], DefaultAioClientInterceptorImpl)
+        assert isinstance(interceptors[0], DefaultClientInterceptorImpl)
         assert interceptors[0]._metadata == METADATA

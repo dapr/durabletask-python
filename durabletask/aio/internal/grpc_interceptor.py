@@ -3,15 +3,15 @@ from collections import namedtuple
 from grpc import aio as grpc_aio
 
 
-class _AioClientCallDetails(
+class _ClientCallDetails(
         namedtuple(
-            '_AioClientCallDetails',
+            '_ClientCallDetails',
             ['method', 'timeout', 'metadata', 'credentials', 'wait_for_ready', 'compression']),
         grpc_aio.ClientCallDetails):
     pass
 
 
-class DefaultAioClientInterceptorImpl(
+class DefaultClientInterceptorImpl(
         grpc_aio.UnaryUnaryClientInterceptor, grpc_aio.UnaryStreamClientInterceptor,
         grpc_aio.StreamUnaryClientInterceptor, grpc_aio.StreamStreamClientInterceptor):
     """Async gRPC client interceptor to add metadata to all calls."""
@@ -20,7 +20,7 @@ class DefaultAioClientInterceptorImpl(
         super().__init__()
         self._metadata = metadata
 
-    def _intercept_call(self, client_call_details: _AioClientCallDetails) -> grpc_aio.ClientCallDetails:
+    def _intercept_call(self, client_call_details: _ClientCallDetails) -> grpc_aio.ClientCallDetails:
         if self._metadata is None:
             return client_call_details
 
@@ -30,7 +30,7 @@ class DefaultAioClientInterceptorImpl(
             metadata = []
 
         metadata.extend(self._metadata)
-        return _AioClientCallDetails(
+        return _ClientCallDetails(
             client_call_details.method,
             client_call_details.timeout,
             metadata,

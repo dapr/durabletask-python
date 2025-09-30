@@ -10,10 +10,10 @@ import durabletask.internal.helpers as helpers
 import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
-from durabletask.aio.internal.shared import get_grpc_aio_channel, AioClientInterceptor
+from durabletask.aio.internal.shared import get_grpc_aio_channel, ClientInterceptor
 from durabletask import task
 from durabletask.client import OrchestrationState, OrchestrationStatus, new_orchestration_state, TInput, TOutput
-from durabletask.aio.internal.grpc_interceptor import DefaultAioClientInterceptorImpl
+from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 
 class AsyncTaskHubGrpcClient:
@@ -24,14 +24,14 @@ class AsyncTaskHubGrpcClient:
                  log_handler: Optional[logging.Handler] = None,
                  log_formatter: Optional[logging.Formatter] = None,
                  secure_channel: bool = False,
-                 interceptors: Optional[Sequence[AioClientInterceptor]] = None):
+                 interceptors: Optional[Sequence[ClientInterceptor]] = None):
 
         if interceptors is not None:
             interceptors = list(interceptors)
             if metadata is not None:
-                interceptors.append(DefaultAioClientInterceptorImpl(metadata))
+                interceptors.append(DefaultClientInterceptorImpl(metadata))
         elif metadata is not None:
-            interceptors = [DefaultAioClientInterceptorImpl(metadata)]
+            interceptors = [DefaultClientInterceptorImpl(metadata)]
         else:
             interceptors = None
 
