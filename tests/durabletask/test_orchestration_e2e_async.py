@@ -232,6 +232,8 @@ async def test_suspend_and_resume():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        # there could be a race condition if the workflow is scheduled before orchestrator is started
+        await asyncio.sleep(0.2)
 
         client = AsyncTaskHubGrpcClient()
         id = await client.schedule_new_orchestration(orchestrator)
