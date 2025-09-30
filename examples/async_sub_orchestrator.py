@@ -21,27 +21,27 @@ async def parent(ctx, x: int):
 
 
 def main():
-    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
+    os.environ.setdefault('DURABLETASK_GRPC_ENDPOINT', 'localhost:4001')
 
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(identity)
-        worker.add_async_orchestrator(child, name="child", sandbox_mode=SandboxMode.OFF)
-        worker.add_async_orchestrator(parent, name="parent", sandbox_mode=SandboxMode.OFF)
+        worker.add_async_orchestrator(child, name='child', sandbox_mode=SandboxMode.OFF)
+        worker.add_async_orchestrator(parent, name='parent', sandbox_mode=SandboxMode.OFF)
 
-        print("Starting worker")
+        print('Starting worker')
         worker.start()
         worker.wait_for_ready(timeout=5)
-        print("Worker ready")
+        print('Worker ready')
 
         client = TaskHubGrpcClient()
-        instance_id = client.schedule_new_orchestration("parent", input=3)
-        print("Started:", instance_id)
+        instance_id = client.schedule_new_orchestration('parent', input=3)
+        print('Started:', instance_id)
         state = client.wait_for_orchestration_completion(instance_id, timeout=30)
         if state:
             state.raise_if_failed()
-            print("Output:", state.serialized_output)
+            print('Output:', state.serialized_output)
         time.sleep(1)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

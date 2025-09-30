@@ -24,94 +24,116 @@ from durabletask.aio.compatibility import OrchestrationContextProtocol
 class CompatibilityChecker:
     """
     Utility class for checking AsyncWorkflowContext compatibility with OrchestrationContext.
-    
+
     This class provides methods to validate that AsyncWorkflowContext maintains
     all required properties and methods for compatibility.
     """
-    
+
     @staticmethod
     def check_protocol_compliance(context_class: type) -> bool:
         """
         Check if a context class complies with the OrchestrationContextProtocol.
-        
+
         Args:
             context_class: The context class to check
-            
+
         Returns:
             True if the class complies with the protocol, False otherwise
         """
         # For protocols with properties, we need to check the class structure
         # rather than using issubclass() which doesn't work with property protocols
-        
+
         # Get all required members from the protocol
         required_properties = [
-            'instance_id', 'current_utc_datetime', 'is_replaying', 'workflow_name',
-            'parent_instance_id', 'history_event_sequence', 'trace_parent',
-            'trace_state', 'orchestration_span_id', 'is_suspended'
+            'instance_id',
+            'current_utc_datetime',
+            'is_replaying',
+            'workflow_name',
+            'parent_instance_id',
+            'history_event_sequence',
+            'trace_parent',
+            'trace_state',
+            'orchestration_span_id',
+            'is_suspended',
         ]
-        
+
         required_methods = [
-            'set_custom_status', 'create_timer', 'call_activity',
-            'call_sub_orchestrator', 'wait_for_external_event', 'continue_as_new'
+            'set_custom_status',
+            'create_timer',
+            'call_activity',
+            'call_sub_orchestrator',
+            'wait_for_external_event',
+            'continue_as_new',
         ]
-        
+
         # Check if the class has all required members
         for prop_name in required_properties:
             if not hasattr(context_class, prop_name):
                 return False
-        
+
         for method_name in required_methods:
             if not hasattr(context_class, method_name):
                 return False
-        
+
         return True
-    
+
     @staticmethod
     def validate_context_compatibility(context_instance: Any) -> list[str]:
         """
         Validate that a context instance has all required properties and methods.
-        
+
         Args:
             context_instance: The context instance to validate
-            
+
         Returns:
             List of missing properties/methods (empty if fully compatible)
         """
         missing_items = []
-        
+
         # Check required properties
         required_properties = [
-            'instance_id', 'current_utc_datetime', 'is_replaying', 'workflow_name',
-            'parent_instance_id', 'history_event_sequence', 'trace_parent',
-            'trace_state', 'orchestration_span_id', 'is_suspended'
+            'instance_id',
+            'current_utc_datetime',
+            'is_replaying',
+            'workflow_name',
+            'parent_instance_id',
+            'history_event_sequence',
+            'trace_parent',
+            'trace_state',
+            'orchestration_span_id',
+            'is_suspended',
         ]
-        
+
         for prop_name in required_properties:
             if not hasattr(context_instance, prop_name):
-                missing_items.append(f"property: {prop_name}")
-        
+                missing_items.append(f'property: {prop_name}')
+
         # Check required methods
         required_methods = [
-            'set_custom_status', 'create_timer', 'call_activity',
-            'call_sub_orchestrator', 'wait_for_external_event', 'continue_as_new'
+            'set_custom_status',
+            'create_timer',
+            'call_activity',
+            'call_sub_orchestrator',
+            'wait_for_external_event',
+            'continue_as_new',
         ]
-        
+
         for method_name in required_methods:
             if not hasattr(context_instance, method_name):
-                missing_items.append(f"method: {method_name}")
+                missing_items.append(f'method: {method_name}')
             elif not callable(getattr(context_instance, method_name)):
-                missing_items.append(f"method: {method_name} (not callable)")
-        
+                missing_items.append(f'method: {method_name} (not callable)')
+
         return missing_items
-    
+
     @staticmethod
     def compare_with_orchestration_context(context_instance: Any) -> dict[str, Any]:
         """
         Compare a context instance with OrchestrationContext interface.
-        
+
         Args:
             context_instance: The context instance to compare
-            
+
         Returns:
             Dictionary with comparison results
         """
@@ -123,44 +145,46 @@ class CompatibilityChecker:
                     base_members[name] = 'property'
                 elif inspect.isfunction(member):
                     base_members[name] = 'method'
-        
+
         # Check context instance
         context_members = {}
         missing_members = []
         extra_members = []
-        
+
         for name, member_type in base_members.items():
             if hasattr(context_instance, name):
                 context_members[name] = member_type
             else:
-                missing_members.append(f"{member_type}: {name}")
-        
+                missing_members.append(f'{member_type}: {name}')
+
         # Find extra members (enhancements)
         for name, member in inspect.getmembers(context_instance):
-            if (not name.startswith('_') and 
-                name not in base_members and 
-                (isinstance(member, property) or callable(member))):
+            if (
+                not name.startswith('_')
+                and name not in base_members
+                and (isinstance(member, property) or callable(member))
+            ):
                 member_type = 'property' if isinstance(member, property) else 'method'
-                extra_members.append(f"{member_type}: {name}")
-        
+                extra_members.append(f'{member_type}: {name}')
+
         return {
             'base_members': base_members,
             'context_members': context_members,
             'missing_members': missing_members,
             'extra_members': extra_members,
-            'is_compatible': len(missing_members) == 0
+            'is_compatible': len(missing_members) == 0,
         }
-    
+
     @staticmethod
     def warn_about_compatibility_issues(context_instance: Any) -> None:
         """
         Issue warnings about any compatibility issues found.
-        
+
         Args:
             context_instance: The context instance to check
         """
         missing_items = CompatibilityChecker.validate_context_compatibility(context_instance)
-        
+
         if missing_items:
             warning_msg = (
                 f"AsyncWorkflowContext compatibility issue: missing {', '.join(missing_items)}. "
@@ -172,38 +196,38 @@ class CompatibilityChecker:
 def validate_runtime_compatibility(context_instance: Any, *, strict: bool = False) -> bool:
     """
     Validate runtime compatibility of a context instance.
-    
+
     Args:
         context_instance: The context instance to validate
         strict: If True, raise exception on compatibility issues; if False, just warn
-        
+
     Returns:
         True if compatible, False otherwise
-        
+
     Raises:
         RuntimeError: If strict=True and compatibility issues are found
     """
     missing_items = CompatibilityChecker.validate_context_compatibility(context_instance)
-    
+
     if missing_items:
         error_msg = (
             f"Runtime compatibility check failed: {context_instance.__class__.__name__} "
             f"is missing {', '.join(missing_items)}"
         )
-        
+
         if strict:
             raise RuntimeError(error_msg)
         else:
             warnings.warn(error_msg, UserWarning, stacklevel=2)
             return False
-    
+
     return True
 
 
 def check_async_context_compatibility() -> dict[str, Any]:
     """
     Check AsyncWorkflowContext compatibility with OrchestrationContext.
-    
+
     Returns:
         Dictionary with detailed compatibility information
     """
@@ -211,15 +235,12 @@ def check_async_context_compatibility() -> dict[str, Any]:
 
     # Create a mock base context for testing
     mock_base_ctx = Mock(spec=task.OrchestrationContext)
-    mock_base_ctx.instance_id = "test"
+    mock_base_ctx.instance_id = 'test'
     mock_base_ctx.current_utc_datetime = datetime.now()
     mock_base_ctx.is_replaying = False
-    
+
     # Create AsyncWorkflowContext instance
     async_ctx = AsyncWorkflowContext(mock_base_ctx)
-    
+
     # Perform compatibility check
     return CompatibilityChecker.compare_with_orchestration_context(async_ctx)
-
-
-

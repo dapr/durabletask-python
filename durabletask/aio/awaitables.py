@@ -30,7 +30,7 @@ from durabletask import task
 
 # Forward reference for the operation wrapper - imported at runtime to avoid circular imports
 
-TOutput = TypeVar("TOutput")
+TOutput = TypeVar('TOutput')
 
 
 class AwaitableBase(Awaitable[TOutput]):
@@ -42,23 +42,23 @@ class AwaitableBase(Awaitable[TOutput]):
     """
 
     __slots__ = ()
-    
+
     def _to_task(self) -> task.Task[Any]:
         """
         Convert this awaitable to a DurableTask task.
-        
+
         Subclasses must implement this method to define how they
         translate to the underlying task system.
-        
+
         Returns:
             A DurableTask task representing this operation
         """
-        raise NotImplementedError("Subclasses must implement _to_task")
-    
+        raise NotImplementedError('Subclasses must implement _to_task')
+
     def __await__(self) -> Generator[Any, Any, TOutput]:
         """
         Make this object awaitable by yielding the underlying task.
-        
+
         This is called when the awaitable is used with 'await' in an
         async workflow function.
         """
@@ -70,9 +70,9 @@ class AwaitableBase(Awaitable[TOutput]):
 
 class ActivityAwaitable(AwaitableBase[TOutput]):
     """Awaitable for activity function calls."""
-    
+
     __slots__ = ('_ctx', '_activity_fn', '_input', '_retry_policy', '_app_id', '_metadata')
-    
+
     def __init__(
         self,
         ctx: Any,
@@ -85,7 +85,7 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
     ):
         """
         Initialize an activity awaitable.
-        
+
         Args:
             ctx: The workflow context
             activity_fn: The activity function to call
@@ -101,51 +101,70 @@ class ActivityAwaitable(AwaitableBase[TOutput]):
         self._retry_policy = retry_policy
         self._app_id = app_id
         self._metadata = metadata
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a call_activity task."""
         # Check if the context supports metadata parameter
         import inspect
+
         sig = inspect.signature(self._ctx.call_activity)
         supports_metadata = 'metadata' in sig.parameters
         supports_app_id = 'app_id' in sig.parameters
-        
+
         if self._retry_policy is None:
-            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
-                kwargs: dict[str, Any] = {"input": self._input}
+            if (supports_metadata and self._metadata is not None) or (
+                supports_app_id and self._app_id is not None
+            ):
+                kwargs: dict[str, Any] = {'input': self._input}
                 if supports_metadata and self._metadata is not None:
-                    kwargs["metadata"] = self._metadata
+                    kwargs['metadata'] = self._metadata
                 if supports_app_id and self._app_id is not None:
-                    kwargs["app_id"] = self._app_id
-                return cast(task.Task[Any], self._ctx.call_activity(
-                    self._activity_fn, **kwargs
-                ))
+                    kwargs['app_id'] = self._app_id
+                return cast(task.Task[Any], self._ctx.call_activity(self._activity_fn, **kwargs))
             else:
-                return cast(task.Task[Any], self._ctx.call_activity(self._activity_fn, input=self._input))
+                return cast(
+                    task.Task[Any], self._ctx.call_activity(self._activity_fn, input=self._input)
+                )
         else:
-            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
-                kwargs2: dict[str, Any] = {"input": self._input, "retry_policy": self._retry_policy}
+            if (supports_metadata and self._metadata is not None) or (
+                supports_app_id and self._app_id is not None
+            ):
+                kwargs2: dict[str, Any] = {'input': self._input, 'retry_policy': self._retry_policy}
                 if supports_metadata and self._metadata is not None:
-                    kwargs2["metadata"] = self._metadata
+                    kwargs2['metadata'] = self._metadata
                 if supports_app_id and self._app_id is not None:
-                    kwargs2["app_id"] = self._app_id
-                return cast(task.Task[Any], self._ctx.call_activity(
-                    self._activity_fn,
-                    **kwargs2,
-                ))
+                    kwargs2['app_id'] = self._app_id
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_activity(
+                        self._activity_fn,
+                        **kwargs2,
+                    ),
+                )
             else:
-                return cast(task.Task[Any], self._ctx.call_activity(
-                    self._activity_fn,
-                    input=self._input,
-                    retry_policy=self._retry_policy,
-                ))
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_activity(
+                        self._activity_fn,
+                        input=self._input,
+                        retry_policy=self._retry_policy,
+                    ),
+                )
 
 
 class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
     """Awaitable for sub-orchestrator calls."""
-    
-    __slots__ = ('_ctx', '_workflow_fn', '_input', '_instance_id', '_retry_policy', '_app_id', '_metadata')
-    
+
+    __slots__ = (
+        '_ctx',
+        '_workflow_fn',
+        '_input',
+        '_instance_id',
+        '_retry_policy',
+        '_app_id',
+        '_metadata',
+    )
+
     def __init__(
         self,
         ctx: Any,
@@ -159,7 +178,7 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
     ):
         """
         Initialize a sub-orchestrator awaitable.
-        
+
         Args:
             ctx: The workflow context
             workflow_fn: The sub-orchestrator function to call
@@ -177,66 +196,83 @@ class SubOrchestratorAwaitable(AwaitableBase[TOutput]):
         self._retry_policy = retry_policy
         self._app_id = app_id
         self._metadata = metadata
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a call_sub_orchestrator task."""
         # The underlying context uses call_sub_orchestrator (durabletask naming)
         # Check if the context supports metadata parameter
         import inspect
+
         sig = inspect.signature(self._ctx.call_sub_orchestrator)
         supports_metadata = 'metadata' in sig.parameters
         supports_app_id = 'app_id' in sig.parameters
-        
+
         if self._retry_policy is None:
-            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
-                kwargs: dict[str, Any] = {"input": self._input, "instance_id": self._instance_id}
+            if (supports_metadata and self._metadata is not None) or (
+                supports_app_id and self._app_id is not None
+            ):
+                kwargs: dict[str, Any] = {'input': self._input, 'instance_id': self._instance_id}
                 if supports_metadata and self._metadata is not None:
-                    kwargs["metadata"] = self._metadata
+                    kwargs['metadata'] = self._metadata
                 if supports_app_id and self._app_id is not None:
-                    kwargs["app_id"] = self._app_id
-                return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
-                    self._workflow_fn,
-                    **kwargs,
-                ))
+                    kwargs['app_id'] = self._app_id
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_sub_orchestrator(
+                        self._workflow_fn,
+                        **kwargs,
+                    ),
+                )
             else:
-                return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
-                    self._workflow_fn,
-                    input=self._input,
-                    instance_id=self._instance_id,
-                ))
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_sub_orchestrator(
+                        self._workflow_fn,
+                        input=self._input,
+                        instance_id=self._instance_id,
+                    ),
+                )
         else:
-            if (supports_metadata and self._metadata is not None) or (supports_app_id and self._app_id is not None):
+            if (supports_metadata and self._metadata is not None) or (
+                supports_app_id and self._app_id is not None
+            ):
                 kwargs2: dict[str, Any] = {
-                    "input": self._input,
-                    "instance_id": self._instance_id,
-                    "retry_policy": self._retry_policy,
+                    'input': self._input,
+                    'instance_id': self._instance_id,
+                    'retry_policy': self._retry_policy,
                 }
                 if supports_metadata and self._metadata is not None:
-                    kwargs2["metadata"] = self._metadata
+                    kwargs2['metadata'] = self._metadata
                 if supports_app_id and self._app_id is not None:
-                    kwargs2["app_id"] = self._app_id
-                return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
-                    self._workflow_fn,
-                    **kwargs2,
-                ))
+                    kwargs2['app_id'] = self._app_id
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_sub_orchestrator(
+                        self._workflow_fn,
+                        **kwargs2,
+                    ),
+                )
             else:
-                return cast(task.Task[Any], self._ctx.call_sub_orchestrator(
-                    self._workflow_fn,
-                    input=self._input,
-                    instance_id=self._instance_id,
-                    retry_policy=self._retry_policy,
-                ))
+                return cast(
+                    task.Task[Any],
+                    self._ctx.call_sub_orchestrator(
+                        self._workflow_fn,
+                        input=self._input,
+                        instance_id=self._instance_id,
+                        retry_policy=self._retry_policy,
+                    ),
+                )
 
 
 class SleepAwaitable(AwaitableBase[None]):
     """Awaitable for timer/sleep operations."""
-    
+
     __slots__ = ('_ctx', '_duration')
-    
+
     def __init__(self, ctx: Any, duration: Union[float, timedelta, datetime]):
         """
         Initialize a sleep awaitable.
-        
+
         Args:
             ctx: The workflow context
             duration: Sleep duration (seconds, timedelta, or absolute datetime)
@@ -244,7 +280,7 @@ class SleepAwaitable(AwaitableBase[None]):
         super().__init__()
         self._ctx = ctx
         self._duration = duration
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a create_timer task."""
         # Convert numeric durations to timedelta objects
@@ -258,13 +294,13 @@ class SleepAwaitable(AwaitableBase[None]):
 
 class ExternalEventAwaitable(AwaitableBase[TOutput]):
     """Awaitable for external event operations."""
-    
+
     __slots__ = ('_ctx', '_name')
-    
+
     def __init__(self, ctx: Any, name: str):
         """
         Initialize an external event awaitable.
-        
+
         Args:
             ctx: The workflow context
             name: Name of the external event to wait for
@@ -272,7 +308,7 @@ class ExternalEventAwaitable(AwaitableBase[TOutput]):
         super().__init__()
         self._ctx = ctx
         self._name = name
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a wait_for_external_event task."""
         return cast(task.Task[Any], self._ctx.wait_for_external_event(self._name))
@@ -285,15 +321,15 @@ class WhenAllAwaitable(AwaitableBase[List[TOutput]]):
     - Empty fast-path: returns [] without creating a task
     - Multi-await safety: caches the result/exception for repeated awaits
     """
-    
+
     __slots__ = ('_tasks_like', '_cached_result', '_cached_exception')
-    
+
     def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
         super().__init__()
         self._tasks_like = list(tasks_like)
         self._cached_result: Optional[List[Any]] = None
         self._cached_exception: Optional[BaseException] = None
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_all task."""
         # Empty fast-path: no durable task required
@@ -332,19 +368,19 @@ class WhenAllAwaitable(AwaitableBase[List[TOutput]]):
 
 class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
     """Awaitable for when_any operations (wait for any task to complete)."""
-    
+
     __slots__ = ('_tasks_like',)
-    
+
     def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
         """
         Initialize a when_any awaitable.
-        
+
         Args:
             tasks_like: Iterable of awaitables or tasks to wait for
         """
         super().__init__()
         self._tasks_like = list(tasks_like)
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_any task."""
         underlying: List[task.Task[Any]] = []
@@ -361,7 +397,7 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
         """Return a proxy that compares equal to the original item and exposes get_result()."""
         when_any_task = self._to_task()
         completed = yield when_any_task
-        
+
         # Build underlying mapping original -> underlying task
         underlying: List[task.Task[Any]] = []
         for a in self._tasks_like:
@@ -371,29 +407,33 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
                 underlying.append(a)
 
         class _CompletedProxy:
-            __slots__ = ("_original", "_completed")
+            __slots__ = ('_original', '_completed')
+
             def __init__(self, original: Any, completed_obj: Any):
                 self._original = original
                 self._completed = completed_obj
+
             def __eq__(self, other: object) -> bool:
                 return other is self._original
+
             def get_result(self) -> Any:
                 # Prefer task.get_result() if available, else try attribute access
-                if hasattr(self._completed, "get_result") and callable(self._completed.get_result):
+                if hasattr(self._completed, 'get_result') and callable(self._completed.get_result):
                     return self._completed.get_result()
-                return getattr(self._completed, "result", None)
+                return getattr(self._completed, 'result', None)
+
             def __repr__(self) -> str:  # pragma: no cover
-                return f"<WhenAnyCompleted proxy for {self._original!r}>"
+                return f'<WhenAnyCompleted proxy for {self._original!r}>'
 
         # If the runtime returned a non-task sentinel (e.g., tests), assume first item won
         if not isinstance(completed, task.Task):
             return _CompletedProxy(self._tasks_like[0], completed)
-        
+
         # Map completed task back to the original item and return proxy
         for original, under in zip(self._tasks_like, underlying):
             if completed == under:
                 return _CompletedProxy(original, completed)
-        
+
         # Fallback proxy; treat the first as original
         return _CompletedProxy(self._tasks_like[0], completed)
 
@@ -401,23 +441,23 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
 class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
     """
     Enhanced when_any that returns both the index and result of the first completed task.
-    
+
     This is useful when you need to know which task completed first, not just its result.
     """
-    
+
     __slots__ = ('_tasks_like', '_awaitables')
-    
+
     def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
         """
         Initialize a when_any_with_result awaitable.
-        
+
         Args:
             tasks_like: Iterable of awaitables or tasks to wait for
         """
         super().__init__()
         self._tasks_like = list(tasks_like)
         self._awaitables = self._tasks_like  # Alias for compatibility
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_any task with result tracking."""
         underlying: List[task.Task[Any]] = []
@@ -427,17 +467,19 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
             elif isinstance(a, task.Task):
                 underlying.append(a)
             else:
-                raise TypeError('when_any_with_result expects AwaitableBase or durabletask.task.Task')
-        
+                raise TypeError(
+                    'when_any_with_result expects AwaitableBase or durabletask.task.Task'
+                )
+
         # Use when_any and then determine which task completed
         when_any_task = task.when_any(underlying)
         return cast(task.Task[Any], when_any_task)
-    
+
     def __await__(self) -> Generator[Any, Any, tuple[int, Any]]:
         """Override to provide index + result tuple."""
         t = self._to_task()
         completed_task = yield t
-        
+
         # Find which task completed by comparing results
         underlying_tasks: List[task.Task[Any]] = []
         for a in self._tasks_like:
@@ -445,12 +487,12 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
                 underlying_tasks.append(a._to_task())
             elif isinstance(a, task.Task):
                 underlying_tasks.append(a)
-        
+
         # The completed_task should match one of our underlying tasks
         for i, underlying_task in enumerate(underlying_tasks):
             if underlying_task == completed_task:
                 return (i, completed_task.result if hasattr(completed_task, 'result') else None)
-        
+
         # Fallback: return the completed task result with index 0
         return (0, completed_task.result if hasattr(completed_task, 'result') else None)
 
@@ -458,16 +500,16 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
 class TimeoutAwaitable(AwaitableBase[TOutput]):
     """
     Awaitable that adds timeout functionality to any other awaitable.
-    
+
     Raises TimeoutError if the operation doesn't complete within the specified time.
     """
-    
+
     __slots__ = ('_awaitable', '_timeout_seconds', '_timeout', '_ctx', '_timeout_task')
-    
+
     def __init__(self, awaitable: AwaitableBase[TOutput], timeout_seconds: float, ctx: Any):
         """
         Initialize a timeout awaitable.
-        
+
         Args:
             awaitable: The awaitable to add timeout to
             timeout_seconds: Timeout in seconds
@@ -479,15 +521,17 @@ class TimeoutAwaitable(AwaitableBase[TOutput]):
         self._timeout = timeout_seconds  # Alias for compatibility
         self._ctx = ctx
         self._timeout_task: Optional[task.Task[Any]] = None
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_any between the operation and a timeout timer."""
         operation_task = self._awaitable._to_task()
         # Cache the timeout task instance so __await__ compares against the same object
         if self._timeout_task is None:
-            self._timeout_task = cast(task.Task[Any], self._ctx.create_timer(timedelta(seconds=self._timeout_seconds)))
+            self._timeout_task = cast(
+                task.Task[Any], self._ctx.create_timer(timedelta(seconds=self._timeout_seconds))
+            )
         return cast(task.Task[Any], task.when_any([operation_task, self._timeout_task]))
-    
+
     def __await__(self) -> Generator[Any, Any, TOutput]:
         """Override to handle timeout logic."""
         task_obj = self._to_task()
@@ -499,19 +543,21 @@ class TimeoutAwaitable(AwaitableBase[TOutput]):
                 return cast(TOutput, completed_task)
             # Otherwise, treat as timeout (e.g., mocks or opaque sentinels)
             from .errors import WorkflowTimeoutError
+
             raise WorkflowTimeoutError(
                 timeout_seconds=self._timeout_seconds,
-                operation=str(self._awaitable.__class__.__name__)
+                operation=str(self._awaitable.__class__.__name__),
             )
-        
+
         # Check if it was the timeout that completed (compare to cached instance)
         if self._timeout_task is not None and completed_task == self._timeout_task:
             from .errors import WorkflowTimeoutError
+
             raise WorkflowTimeoutError(
                 timeout_seconds=self._timeout_seconds,
-                operation=str(self._awaitable.__class__.__name__)
+                operation=str(self._awaitable.__class__.__name__),
             )
-        
+
         # Return the actual result
         return cast(TOutput, completed_task.result if hasattr(completed_task, 'result') else None)
 
@@ -519,26 +565,26 @@ class TimeoutAwaitable(AwaitableBase[TOutput]):
 class SwallowExceptionAwaitable(AwaitableBase[Any]):
     """
     Awaitable that swallows exceptions and returns them as values.
-    
+
     This is useful for gather operations with return_exceptions=True.
     """
-    
+
     __slots__ = ('_awaitable',)
-    
+
     def __init__(self, awaitable: AwaitableBase[Any]):
         """
         Initialize a swallow exception awaitable.
-        
+
         Args:
             awaitable: The awaitable to wrap
         """
         super().__init__()
         self._awaitable = awaitable
-    
+
     def _to_task(self) -> task.Task[Any]:
         """Convert to the underlying task."""
         return self._awaitable._to_task()
-    
+
     def __await__(self) -> Generator[Any, Any, Any]:
         """Override to catch and return exceptions."""
         try:
@@ -555,7 +601,7 @@ class SwallowExceptionAwaitable(AwaitableBase[Any]):
 def _resolve_callable(module_name: str, qualname: str) -> Callable[..., Any]:
     """
     Resolve a callable from module name and qualified name.
-    
+
     This is used internally for gather operations that need to serialize
     and deserialize callable references.
     """
@@ -568,14 +614,16 @@ def _resolve_callable(module_name: str, qualname: str) -> Callable[..., Any]:
     return cast(Callable[..., Any], obj)
 
 
-def gather(*awaitables: AwaitableBase[Any], return_exceptions: bool = False) -> WhenAllAwaitable[Any]:
+def gather(
+    *awaitables: AwaitableBase[Any], return_exceptions: bool = False
+) -> WhenAllAwaitable[Any]:
     """
     Gather multiple awaitables, similar to asyncio.gather.
-    
+
     Args:
         *awaitables: The awaitables to gather
         return_exceptions: If True, exceptions are returned as results instead of raised
-        
+
     Returns:
         A WhenAllAwaitable that will complete when all awaitables complete
     """

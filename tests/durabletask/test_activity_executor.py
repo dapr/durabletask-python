@@ -8,12 +8,12 @@ from typing import Any, Optional, Tuple
 from durabletask import task, worker
 
 logging.basicConfig(
-    format="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format='%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
     level=logging.DEBUG,
 )
-TEST_LOGGER = logging.getLogger("tests")
-TEST_INSTANCE_ID = "abc123"
+TEST_LOGGER = logging.getLogger('tests')
+TEST_INSTANCE_ID = 'abc123'
 TEST_TASK_ID = 42
 
 
@@ -24,11 +24,9 @@ def test_activity_inputs():
         # return all activity inputs back as the output
         return test_input, ctx.orchestration_id, ctx.task_id
 
-    activity_input = "Hello, 世界!"
+    activity_input = 'Hello, 世界!'
     executor, name = _get_activity_executor(test_activity)
-    result = executor.execute(
-        TEST_INSTANCE_ID, name, TEST_TASK_ID, json.dumps(activity_input)
-    )
+    result = executor.execute(TEST_INSTANCE_ID, name, TEST_TASK_ID, json.dumps(activity_input))
     assert result is not None
 
     result_input, result_orchestration_id, result_task_id = json.loads(result)
@@ -52,15 +50,15 @@ def test_activity_trace_context_passthrough():
         name,
         TEST_TASK_ID,
         json.dumps(None),
-        trace_parent="00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
-        trace_state="tenant=contoso",
-        workflow_span_id="bbbbbbbbbbbbbbbb",
+        trace_parent='00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01',
+        trace_state='tenant=contoso',
+        workflow_span_id='bbbbbbbbbbbbbbbb',
     )
     assert result is not None
     tp, ts, sid = json.loads(result)
-    assert tp.endswith("-bbbbbbbbbbbbbbbb-01")
-    assert ts == "tenant=contoso"
-    assert sid == "bbbbbbbbbbbbbbbb"
+    assert tp.endswith('-bbbbbbbbbbbbbbbb-01')
+    assert ts == 'tenant=contoso'
+    assert sid == 'bbbbbbbbbbbbbbbb'
 
 
 def test_activity_not_registered():
@@ -71,12 +69,12 @@ def test_activity_not_registered():
 
     caught_exception: Optional[Exception] = None
     try:
-        executor.execute(TEST_INSTANCE_ID, "Bogus", TEST_TASK_ID, None)
+        executor.execute(TEST_INSTANCE_ID, 'Bogus', TEST_TASK_ID, None)
     except Exception as ex:
         caught_exception = ex
 
     assert type(caught_exception) is worker.ActivityNotRegisteredError
-    assert "Bogus" in str(caught_exception)
+    assert 'Bogus' in str(caught_exception)
 
 
 def test_activity_attempt_temp_hack_no_effect_in_direct_executor():
@@ -86,7 +84,7 @@ def test_activity_attempt_temp_hack_no_effect_in_direct_executor():
     """
 
     def probe_attempt(ctx: task.ActivityContext, _):
-        return {"attempt": ctx.attempt}
+        return {'attempt': ctx.attempt}
 
     executor, name = _get_activity_executor(probe_attempt)
     # Provide a JSON-encoded null payload to get a valid StringValue in executor path
@@ -94,7 +92,7 @@ def test_activity_attempt_temp_hack_no_effect_in_direct_executor():
     assert result is not None
     parsed = json.loads(result)
     assert isinstance(parsed, dict)
-    assert parsed.get("attempt") is None
+    assert parsed.get('attempt') is None
 
 
 def _get_activity_executor(fn: task.Activity) -> Tuple[worker._ActivityExecutor, str]:

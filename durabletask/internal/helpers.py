@@ -49,8 +49,8 @@ def new_execution_started_event_with_trace(
     tc = None
     if trace_parent or trace_state:
         tc = pb.TraceContext(
-            traceParent=trace_parent or "",
-            traceState=wrappers_pb2.StringValue(value=trace_state or "")
+            traceParent=trace_parent or '',
+            traceState=wrappers_pb2.StringValue(value=trace_state or '')
             if trace_state is not None
             else None,
         )
@@ -95,9 +95,7 @@ def new_task_scheduled_event(
     return pb.HistoryEvent(
         eventId=event_id,
         timestamp=timestamp_pb2.Timestamp(),
-        taskScheduled=pb.TaskScheduledEvent(
-            name=name, input=get_string_value(encoded_input)
-        ),
+        taskScheduled=pb.TaskScheduledEvent(name=name, input=get_string_value(encoded_input)),
     )
 
 
@@ -161,21 +159,15 @@ def new_failure_details(ex: Exception) -> pb.TaskFailureDetails:
     return pb.TaskFailureDetails(
         errorType=type(ex).__name__,
         errorMessage=str(ex),
-        stackTrace=wrappers_pb2.StringValue(
-            value="".join(traceback.format_tb(ex.__traceback__))
-        ),
+        stackTrace=wrappers_pb2.StringValue(value=''.join(traceback.format_tb(ex.__traceback__))),
     )
 
 
-def new_event_raised_event(
-    name: str, encoded_input: Optional[str] = None
-) -> pb.HistoryEvent:
+def new_event_raised_event(name: str, encoded_input: Optional[str] = None) -> pb.HistoryEvent:
     return pb.HistoryEvent(
         eventId=-1,
         timestamp=timestamp_pb2.Timestamp(),
-        eventRaised=pb.EventRaisedEvent(
-            name=name, input=get_string_value(encoded_input)
-        ),
+        eventRaised=pb.EventRaisedEvent(name=name, input=get_string_value(encoded_input)),
     )
 
 
@@ -199,9 +191,7 @@ def new_terminated_event(*, encoded_output: Optional[str] = None) -> pb.HistoryE
     return pb.HistoryEvent(
         eventId=-1,
         timestamp=timestamp_pb2.Timestamp(),
-        executionTerminated=pb.ExecutionTerminatedEvent(
-            input=get_string_value(encoded_output)
-        ),
+        executionTerminated=pb.ExecutionTerminatedEvent(input=get_string_value(encoded_output)),
     )
 
 
@@ -226,20 +216,18 @@ def new_complete_orchestration_action(
         carryoverEvents=carryover_events,
     )
 
-    return pb.OrchestratorAction(
-        id=id, completeOrchestration=completeOrchestrationAction
-    )
+    return pb.OrchestratorAction(id=id, completeOrchestration=completeOrchestrationAction)
 
 
 def new_create_timer_action(id: int, fire_at: datetime) -> pb.OrchestratorAction:
     timestamp = timestamp_pb2.Timestamp()
     timestamp.FromDatetime(fire_at)
-    return pb.OrchestratorAction(
-        id=id, createTimer=pb.CreateTimerAction(fireAt=timestamp)
-    )
+    return pb.OrchestratorAction(id=id, createTimer=pb.CreateTimerAction(fireAt=timestamp))
 
 
-def new_schedule_task_action(id: int, name: str, encoded_input: Optional[str], router: Optional[pb.TaskRouter] = None) -> pb.OrchestratorAction:
+def new_schedule_task_action(
+    id: int, name: str, encoded_input: Optional[str], router: Optional[pb.TaskRouter] = None
+) -> pb.OrchestratorAction:
     return pb.OrchestratorAction(
         id=id,
         scheduleTask=pb.ScheduleTaskAction(
@@ -258,11 +246,12 @@ def new_timestamp(dt: datetime) -> timestamp_pb2.Timestamp:
 
 
 def new_create_sub_orchestration_action(
-        id: int,
-        name: str,
-        instance_id: Optional[str],
-        encoded_input: Optional[str],
-        router: Optional[pb.TaskRouter] = None) -> pb.OrchestratorAction:
+    id: int,
+    name: str,
+    instance_id: Optional[str],
+    encoded_input: Optional[str],
+    router: Optional[pb.TaskRouter] = None,
+) -> pb.OrchestratorAction:
     return pb.OrchestratorAction(
         id=id,
         createSubOrchestration=pb.CreateSubOrchestrationAction(
@@ -276,13 +265,13 @@ def new_create_sub_orchestration_action(
 
 
 def is_empty(v: wrappers_pb2.StringValue):
-    return v is None or v.value == ""
+    return v is None or v.value == ''
 
 
 def get_orchestration_status_str(status: pb.OrchestrationStatus):
     try:
         const_name = pb.OrchestrationStatus.Name(status)
-        if const_name.startswith("ORCHESTRATION_STATUS_"):
-            return const_name[len("ORCHESTRATION_STATUS_") :]
+        if const_name.startswith('ORCHESTRATION_STATUS_'):
+            return const_name[len('ORCHESTRATION_STATUS_') :]
     except Exception:
-        return "UNKNOWN"
+        return 'UNKNOWN'

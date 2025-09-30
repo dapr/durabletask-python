@@ -8,14 +8,14 @@ import grpc
 
 class _ClientCallDetails(
     namedtuple(
-        "_ClientCallDetails",
+        '_ClientCallDetails',
         [
-            "method",
-            "timeout",
-            "metadata",
-            "credentials",
-            "wait_for_ready",
-            "compression",
+            'method',
+            'timeout',
+            'metadata',
+            'credentials',
+            'wait_for_ready',
+            'compression',
         ],
     ),
     grpc.ClientCallDetails,
@@ -42,9 +42,7 @@ class DefaultClientInterceptorImpl(
         super().__init__()
         self._metadata = metadata
 
-    def _intercept_call(
-        self, client_call_details: _ClientCallDetails
-    ) -> grpc.ClientCallDetails:
+    def _intercept_call(self, client_call_details: _ClientCallDetails) -> grpc.ClientCallDetails:
         """Internal intercept_call implementation which adds metadata to grpc metadata in the RPC
         call details."""
         if self._metadata is None:

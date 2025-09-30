@@ -27,12 +27,14 @@ from typing import (
 from durabletask import task
 from durabletask.aio.errors import AsyncWorkflowError, WorkflowValidationError
 
-TInput = TypeVar("TInput")
-TOutput = TypeVar("TOutput")
+TInput = TypeVar('TInput')
+TOutput = TypeVar('TOutput')
+
 
 @runtime_checkable
 class WorkflowFunction(Protocol):
     """Protocol for workflow functions."""
+
     async def __call__(self, ctx: Any, input_data: Optional[Any] = None) -> Any:
         ...
 
@@ -40,27 +42,27 @@ class WorkflowFunction(Protocol):
 class CoroutineOrchestratorRunner:
     """
     Wraps an async orchestrator function into a generator-compatible runner.
-    
+
     This class bridges the gap between async/await syntax and the generator-based
     DurableTask runtime, enabling developers to write workflows using modern
     async Python while maintaining deterministic execution semantics.
-    
+
     The implementation uses an iterator pattern to properly handle replay scenarios
     and avoid coroutine reuse issues that can occur during workflow replay.
     """
-    
+
     __slots__ = ('_async_orchestrator', '_sandbox_mode', '_workflow_name')
-    
+
     def __init__(
-        self, 
-        async_orchestrator: Callable[..., Awaitable[Any]], 
-        *, 
+        self,
+        async_orchestrator: Callable[..., Awaitable[Any]],
+        *,
         sandbox_mode: str = 'off',
-        workflow_name: Optional[str] = None
+        workflow_name: Optional[str] = None,
     ):
         """
         Initialize the coroutine orchestrator runner.
-        
+
         Args:
             async_orchestrator: The async workflow function to wrap
             sandbox_mode: Sandbox mode ('off', 'best_effort', 'strict')
@@ -72,7 +74,7 @@ class CoroutineOrchestratorRunner:
         base_name: str = name_attr if isinstance(name_attr, str) else 'unknown'
         self._workflow_name: str = workflow_name if workflow_name is not None else base_name
         self._validate_orchestrator(async_orchestrator)
-    
+
     def _validate_orchestrator(self, orchestrator_fn: Callable[..., Awaitable[Any]]) -> None:
         """
         Validate that the orchestrator function is suitable for async workflows.
@@ -85,52 +87,52 @@ class CoroutineOrchestratorRunner:
         """
         if not callable(orchestrator_fn):
             raise WorkflowValidationError(
-                "Orchestrator must be callable",
-                validation_type="function_type",
-                workflow_name=self._workflow_name
+                'Orchestrator must be callable',
+                validation_type='function_type',
+                workflow_name=self._workflow_name,
             )
-        
+
         if not inspect.iscoroutinefunction(orchestrator_fn):
             raise WorkflowValidationError(
                 "Orchestrator must be an async function (defined with 'async def')",
-                validation_type="async_function",
-                workflow_name=self._workflow_name
+                validation_type='async_function',
+                workflow_name=self._workflow_name,
             )
-        
+
         # Check function signature
         sig = inspect.signature(orchestrator_fn)
         params = list(sig.parameters.values())
-        
+
         if len(params) < 1:
             raise WorkflowValidationError(
-                "Orchestrator must accept at least one parameter (context)",
-                validation_type="function_signature",
-                workflow_name=self._workflow_name
+                'Orchestrator must accept at least one parameter (context)',
+                validation_type='function_signature',
+                workflow_name=self._workflow_name,
             )
-        
+
         if len(params) > 2:
             raise WorkflowValidationError(
-                "Orchestrator must accept at most two parameters (context, input)",
-                validation_type="function_signature", 
-                workflow_name=self._workflow_name
+                'Orchestrator must accept at most two parameters (context, input)',
+                validation_type='function_signature',
+                workflow_name=self._workflow_name,
             )
-    
+
     def to_generator(
         self, async_ctx: Any, input_data: Optional[Any] = None
     ) -> Generator[task.Task[Any], Any, Any]:
         """
         Convert the async orchestrator to a generator that the DurableTask runtime can drive.
-        
+
         This implementation uses an iterator pattern similar to the original to properly
         handle replay scenarios and avoid coroutine reuse issues.
-        
+
         Args:
             async_ctx: The async workflow context
             input_data: Optional input data for the workflow
-            
+
         Returns:
             A generator that yields tasks and receives results
-            
+
         Raises:
             AsyncWorkflowError: If there are issues during workflow execution
         """
@@ -153,9 +155,9 @@ class CoroutineOrchestratorRunner:
 
             except TypeError as e:
                 raise AsyncWorkflowError(
-                    f"Failed to instantiate workflow coroutine: {e}",
+                    f'Failed to instantiate workflow coroutine: {e}',
                     workflow_name=self._workflow_name,
-                    step="initialization"
+                    step='initialization',
                 ) from e
 
             # Prime the coroutine to first await point or finish synchronously
@@ -169,25 +171,26 @@ class CoroutineOrchestratorRunner:
                 return stop.value
             except Exception as e:
                 raise AsyncWorkflowError(
-                    f"Workflow failed during initialization: {e}",
+                    f'Workflow failed during initialization: {e}',
                     workflow_name=self._workflow_name,
                     instance_id=getattr(async_ctx, 'instance_id', None),
-                    step="initialization",
+                    step='initialization',
                 ) from e
 
             def to_iter(obj: Any) -> Generator[Any, Any, Any]:
-                if hasattr(obj, "__await__"):
+                if hasattr(obj, '__await__'):
                     return cast(Generator[Any, Any, Any], obj.__await__())
                 if isinstance(obj, task.Task):
                     # Wrap a single Task into a one-shot awaitable iterator
                     def _one_shot() -> Generator[task.Task[Any], Any, Any]:
                         res = yield obj
                         return res
+
                     return _one_shot()
                 raise AsyncWorkflowError(
-                    f"Async orchestrator awaited unsupported object type: {type(obj)}",
+                    f'Async orchestrator awaited unsupported object type: {type(obj)}',
                     workflow_name=self._workflow_name,
-                    step="awaitable_conversion"
+                    step='awaitable_conversion',
                 )
 
             awaited_iter = to_iter(awaited_obj)
@@ -207,18 +210,18 @@ class CoroutineOrchestratorRunner:
                         return stop.value
                     except Exception as e:
                         raise AsyncWorkflowError(
-                            f"Workflow failed: {e}",
+                            f'Workflow failed: {e}',
                             workflow_name=self._workflow_name,
-                            step="execution",
+                            step='execution',
                         ) from e
                     awaited_iter = to_iter(awaited_obj)
                     continue
 
                 if not isinstance(request, task.Task):
                     raise AsyncWorkflowError(
-                        f"Async awaitable yielded a non-Task object: {type(request)}",
+                        f'Async awaitable yielded a non-Task object: {type(request)}',
                         workflow_name=self._workflow_name,
-                        step="execution"
+                        step='execution',
                     )
 
                 # Yield to runtime and resume awaitable with task result
@@ -239,9 +242,9 @@ class CoroutineOrchestratorRunner:
                             return stop.value
                         except Exception as workflow_exc:
                             raise AsyncWorkflowError(
-                                f"Workflow failed: {workflow_exc}",
+                                f'Workflow failed: {workflow_exc}',
                                 workflow_name=self._workflow_name,
-                                step="execution",
+                                step='execution',
                             ) from workflow_exc
                         awaited_iter = to_iter(awaited_obj)
                     except Exception as exc:
@@ -255,9 +258,9 @@ class CoroutineOrchestratorRunner:
                             return stop.value
                         except Exception as workflow_exc:
                             raise AsyncWorkflowError(
-                                f"Workflow failed: {workflow_exc}",
+                                f'Workflow failed: {workflow_exc}',
                                 workflow_name=self._workflow_name,
-                                step="execution",
+                                step='execution',
                             ) from workflow_exc
                         awaited_iter = to_iter(awaited_obj)
                     continue
@@ -268,9 +271,9 @@ class CoroutineOrchestratorRunner:
                     while True:
                         if not isinstance(next_req, task.Task):
                             raise AsyncWorkflowError(
-                                f"Async awaitable yielded a non-Task object: {type(next_req)}",
+                                f'Async awaitable yielded a non-Task object: {type(next_req)}',
                                 workflow_name=self._workflow_name,
-                                step="execution"
+                                step='execution',
                             )
                         result = yield next_req
                         next_req = awaited_iter.send(result)
@@ -285,19 +288,19 @@ class CoroutineOrchestratorRunner:
                         return stop.value
                     except Exception as e:
                         raise AsyncWorkflowError(
-                            f"Workflow failed: {e}",
+                            f'Workflow failed: {e}',
                             workflow_name=self._workflow_name,
-                            step="execution",
+                            step='execution',
                         ) from e
                     awaited_iter = to_iter(awaited_obj)
 
         return driver_gen()
-    
+
     @property
     def workflow_name(self) -> str:
         """Get the workflow name."""
         return self._workflow_name
-    
+
     @property
     def sandbox_mode(self) -> str:
         """Get the sandbox mode."""

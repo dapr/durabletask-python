@@ -18,7 +18,14 @@ def test_activity_app_id_passed_to_base_ctx_when_supported():
     base_ctx = Mock(spec=dt_task.OrchestrationContext)
 
     # Mock call_activity signature to include app_id and metadata
-    def _call_activity(activity: Any, *, input: Any = None, retry_policy: Any = None, app_id: str | None = None, metadata: dict[str, str] | None = None):
+    def _call_activity(
+        activity: Any,
+        *,
+        input: Any = None,
+        retry_policy: Any = None,
+        app_id: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ):
         # Return a durable task-like object; tests only need that it's called with kwargs
         return dt_task.when_all([])
 
@@ -26,7 +33,9 @@ def test_activity_app_id_passed_to_base_ctx_when_supported():
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.activity("do_work", input={"x": 1}, retry_policy=None, app_id="target-app", metadata={"k": "v"})
+    awaitable = async_ctx.activity(
+        'do_work', input={'x': 1}, retry_policy=None, app_id='target-app', metadata={'k': 'v'}
+    )
     task_obj = awaitable._to_task()
     assert isinstance(task_obj, dt_task.Task)
 
@@ -35,14 +44,29 @@ def test_sub_orchestrator_app_id_passed_to_base_ctx_when_supported():
     base_ctx = Mock(spec=dt_task.OrchestrationContext)
 
     # Mock call_sub_orchestrator signature to include app_id and metadata
-    def _call_sub(orchestrator: Any, *, input: Any = None, instance_id: str | None = None, retry_policy: Any = None, app_id: str | None = None, metadata: dict[str, str] | None = None):
+    def _call_sub(
+        orchestrator: Any,
+        *,
+        input: Any = None,
+        instance_id: str | None = None,
+        retry_policy: Any = None,
+        app_id: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ):
         return dt_task.when_all([])
 
     base_ctx.call_sub_orchestrator = _call_sub  # type: ignore[attr-defined]
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.sub_orchestrator("child_wf", input=None, instance_id="abc", retry_policy=None, app_id="target-app", metadata={"k2": "v2"})
+    awaitable = async_ctx.sub_orchestrator(
+        'child_wf',
+        input=None,
+        instance_id='abc',
+        retry_policy=None,
+        app_id='target-app',
+        metadata={'k2': 'v2'},
+    )
     task_obj = awaitable._to_task()
     assert isinstance(task_obj, dt_task.Task)
 
@@ -51,14 +75,22 @@ def test_activity_app_id_not_passed_when_not_supported():
     base_ctx = Mock(spec=dt_task.OrchestrationContext)
 
     # Mock call_activity without app_id support
-    def _call_activity(activity: Any, *, input: Any = None, retry_policy: Any = None, metadata: dict[str, str] | None = None):
+    def _call_activity(
+        activity: Any,
+        *,
+        input: Any = None,
+        retry_policy: Any = None,
+        metadata: dict[str, str] | None = None,
+    ):
         return dt_task.when_all([])
 
     base_ctx.call_activity = _call_activity  # type: ignore[attr-defined]
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.activity("do_work", input={"x": 1}, retry_policy=None, app_id="target-app", metadata={"k": "v"})
+    awaitable = async_ctx.activity(
+        'do_work', input={'x': 1}, retry_policy=None, app_id='target-app', metadata={'k': 'v'}
+    )
     task_obj = awaitable._to_task()
     assert isinstance(task_obj, dt_task.Task)
 
@@ -67,16 +99,27 @@ def test_sub_orchestrator_app_id_not_passed_when_not_supported():
     base_ctx = Mock(spec=dt_task.OrchestrationContext)
 
     # Mock call_sub_orchestrator without app_id support
-    def _call_sub(orchestrator: Any, *, input: Any = None, instance_id: str | None = None, retry_policy: Any = None, metadata: dict[str, str] | None = None):
+    def _call_sub(
+        orchestrator: Any,
+        *,
+        input: Any = None,
+        instance_id: str | None = None,
+        retry_policy: Any = None,
+        metadata: dict[str, str] | None = None,
+    ):
         return dt_task.when_all([])
 
     base_ctx.call_sub_orchestrator = _call_sub  # type: ignore[attr-defined]
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.sub_orchestrator("child_wf", input=None, instance_id="abc", retry_policy=None, app_id="target-app", metadata={"k2": "v2"})
+    awaitable = async_ctx.sub_orchestrator(
+        'child_wf',
+        input=None,
+        instance_id='abc',
+        retry_policy=None,
+        app_id='target-app',
+        metadata={'k2': 'v2'},
+    )
     task_obj = awaitable._to_task()
     assert isinstance(task_obj, dt_task.Task)
-
-
-

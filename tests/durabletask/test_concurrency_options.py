@@ -65,13 +65,9 @@ def test_worker_default_options():
     expected_default = 100 * processor_count
     expected_workers = processor_count + 4
 
+    assert worker.concurrency_options.maximum_concurrent_activity_work_items == expected_default
     assert (
-        worker.concurrency_options.maximum_concurrent_activity_work_items
-        == expected_default
-    )
-    assert (
-        worker.concurrency_options.maximum_concurrent_orchestration_work_items
-        == expected_default
+        worker.concurrency_options.maximum_concurrent_orchestration_work_items == expected_default
     )
     assert worker.concurrency_options.maximum_thread_pool_workers == expected_workers
 

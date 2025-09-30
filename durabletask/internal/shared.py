@@ -19,10 +19,10 @@ ClientInterceptor = Union[
 
 # Field name used to indicate that an object was automatically serialized
 # and should be deserialized as a SimpleNamespace
-AUTO_SERIALIZED = "__durabletask_autoobject__"
+AUTO_SERIALIZED = '__durabletask_autoobject__'
 
-SECURE_PROTOCOLS = ["https://", "grpcs://"]
-INSECURE_PROTOCOLS = ["http://", "grpc://"]
+SECURE_PROTOCOLS = ['https://', 'grpcs://']
+INSECURE_PROTOCOLS = ['http://', 'grpc://']
 
 
 def get_default_host_address() -> str:
@@ -36,20 +36,20 @@ def get_default_host_address() -> str:
     - TASKHUB_GRPC_ENDPOINT (legacy/alt name)
     """
     # Full endpoint overrides
-    endpoint = os.environ.get("DURABLETASK_GRPC_ENDPOINT") or os.environ.get(
-        "TASKHUB_GRPC_ENDPOINT"
+    endpoint = os.environ.get('DURABLETASK_GRPC_ENDPOINT') or os.environ.get(
+        'TASKHUB_GRPC_ENDPOINT'
     )
     if endpoint:
         return endpoint
 
     # Host/port split overrides
-    host = os.environ.get("DURABLETASK_GRPC_HOST")
-    port = os.environ.get("DURABLETASK_GRPC_PORT")
+    host = os.environ.get('DURABLETASK_GRPC_HOST')
+    port = os.environ.get('DURABLETASK_GRPC_PORT')
     if host and port:
-        return f"{host}:{port}"
+        return f'{host}:{port}'
 
     # Default
-    return "localhost:4001"
+    return 'localhost:4001'
 
 
 def get_grpc_channel(
@@ -102,7 +102,7 @@ def _get_env_bool(name: str, default: bool) -> bool:
     val = os.environ.get(name)
     if val is None:
         return default
-    return val.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return val.strip().lower() in {'1', 'true', 't', 'yes', 'y'}
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -127,7 +127,7 @@ def _get_env_float(name: str, default: float) -> float:
 
 def _get_env_csv(name: str, default_csv: str) -> list[str]:
     val = os.environ.get(name, default_csv)
-    return [s.strip().upper() for s in val.split(",") if s.strip()]
+    return [s.strip().upper() for s in val.split(',') if s.strip()]
 
 
 def get_grpc_keepalive_options() -> list[tuple[str, Any]]:
@@ -139,18 +139,18 @@ def get_grpc_keepalive_options() -> list[tuple[str, Any]]:
     - DAPR_GRPC_KEEPALIVE_TIMEOUT_MS (20000)
     - DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS (false)
     """
-    enabled = _get_env_bool("DAPR_GRPC_KEEPALIVE_ENABLED", False)
+    enabled = _get_env_bool('DAPR_GRPC_KEEPALIVE_ENABLED', False)
     if not enabled:
         return []
-    time_ms = _get_env_int("DAPR_GRPC_KEEPALIVE_TIME_MS", 120000)
-    timeout_ms = _get_env_int("DAPR_GRPC_KEEPALIVE_TIMEOUT_MS", 20000)
+    time_ms = _get_env_int('DAPR_GRPC_KEEPALIVE_TIME_MS', 120000)
+    timeout_ms = _get_env_int('DAPR_GRPC_KEEPALIVE_TIMEOUT_MS', 20000)
     permit_without_calls = (
-        1 if _get_env_bool("DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS", False) else 0
+        1 if _get_env_bool('DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS', False) else 0
     )
     return [
-        ("grpc.keepalive_time_ms", time_ms),
-        ("grpc.keepalive_timeout_ms", timeout_ms),
-        ("grpc.keepalive_permit_without_calls", permit_without_calls),
+        ('grpc.keepalive_time_ms', time_ms),
+        ('grpc.keepalive_timeout_ms', timeout_ms),
+        ('grpc.keepalive_permit_without_calls', permit_without_calls),
     ]
 
 
@@ -165,31 +165,31 @@ def get_grpc_retry_service_config_option() -> Optional[tuple[str, str]]:
     - DAPR_GRPC_RETRY_BACKOFF_MULTIPLIER (2.0)
     - DAPR_GRPC_RETRY_CODES (UNAVAILABLE,DEADLINE_EXCEEDED)
     """
-    enabled = _get_env_bool("DAPR_GRPC_RETRY_ENABLED", False)
+    enabled = _get_env_bool('DAPR_GRPC_RETRY_ENABLED', False)
     if not enabled:
         return None
 
-    max_attempts = _get_env_int("DAPR_GRPC_RETRY_MAX_ATTEMPTS", 4)
-    initial_backoff_ms = _get_env_int("DAPR_GRPC_RETRY_INITIAL_BACKOFF_MS", 100)
-    max_backoff_ms = _get_env_int("DAPR_GRPC_RETRY_MAX_BACKOFF_MS", 1000)
-    backoff_multiplier = _get_env_float("DAPR_GRPC_RETRY_BACKOFF_MULTIPLIER", 2.0)
-    codes = _get_env_csv("DAPR_GRPC_RETRY_CODES", "UNAVAILABLE,DEADLINE_EXCEEDED")
+    max_attempts = _get_env_int('DAPR_GRPC_RETRY_MAX_ATTEMPTS', 4)
+    initial_backoff_ms = _get_env_int('DAPR_GRPC_RETRY_INITIAL_BACKOFF_MS', 100)
+    max_backoff_ms = _get_env_int('DAPR_GRPC_RETRY_MAX_BACKOFF_MS', 1000)
+    backoff_multiplier = _get_env_float('DAPR_GRPC_RETRY_BACKOFF_MULTIPLIER', 2.0)
+    codes = _get_env_csv('DAPR_GRPC_RETRY_CODES', 'UNAVAILABLE,DEADLINE_EXCEEDED')
 
     service_config = {
-        "methodConfig": [
+        'methodConfig': [
             {
-                "name": [{"service": ""}],
-                "retryPolicy": {
-                    "maxAttempts": max_attempts,
-                    "initialBackoff": f"{initial_backoff_ms/1000.0}s",
-                    "maxBackoff": f"{max_backoff_ms/1000.0}s",
-                    "backoffMultiplier": backoff_multiplier,
-                    "retryableStatusCodes": codes,
+                'name': [{'service': ''}],
+                'retryPolicy': {
+                    'maxAttempts': max_attempts,
+                    'initialBackoff': f'{initial_backoff_ms/1000.0}s',
+                    'maxBackoff': f'{max_backoff_ms/1000.0}s',
+                    'backoffMultiplier': backoff_multiplier,
+                    'retryableStatusCodes': codes,
                 },
             }
         ]
     }
-    return ("grpc.service_config", json.dumps(service_config))
+    return ('grpc.service_config', json.dumps(service_config))
 
 
 def build_grpc_channel_options(
@@ -217,7 +217,7 @@ def get_logger(
     log_handler: Optional[logging.Handler] = None,
     log_formatter: Optional[logging.Formatter] = None,
 ) -> logging.Logger:
-    logger = logging.Logger(f"durabletask-{name_suffix}")
+    logger = logging.Logger(f'durabletask-{name_suffix}')
 
     # Add a default log handler if none is provided
     if log_handler is None:
@@ -228,8 +228,8 @@ def get_logger(
     # Set a default log formatter to our handler if none is provided
     if log_formatter is None:
         log_formatter = logging.Formatter(
-            fmt="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            fmt='%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
         )
     log_handler.setFormatter(log_formatter)
     return logger
@@ -248,11 +248,7 @@ class InternalJSONEncoder(json.JSONEncoder):
 
     def encode(self, obj: Any) -> str:
         # if the object is a namedtuple, convert it to a dict with the AUTO_SERIALIZED key added
-        if (
-            isinstance(obj, tuple)
-            and hasattr(obj, "_fields")
-            and hasattr(obj, "_asdict")
-        ):
+        if isinstance(obj, tuple) and hasattr(obj, '_fields') and hasattr(obj, '_asdict'):
             d = obj._asdict()  # type: ignore
             d[AUTO_SERIALIZED] = True
             obj = d

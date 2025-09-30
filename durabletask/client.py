@@ -19,8 +19,8 @@ import durabletask.internal.shared as shared
 from durabletask import task
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
-TInput = TypeVar("TInput")
-TOutput = TypeVar("TOutput")
+TInput = TypeVar('TInput')
+TOutput = TypeVar('TOutput')
 
 
 class OrchestrationStatus(Enum):
@@ -86,7 +86,7 @@ def new_orchestration_state(
     state = res.orchestrationState
 
     failure_details = None
-    if state.failureDetails.errorMessage != "" or state.failureDetails.errorType != "":
+    if state.failureDetails.errorMessage != '' or state.failureDetails.errorType != '':
         failure_details = task.FailureDetails(
             state.failureDetails.errorMessage,
             state.failureDetails.errorType,
@@ -139,7 +139,7 @@ class TaskHubGrpcClient:
         )
         self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
-        self._logger = shared.get_logger("client", log_handler, log_formatter)
+        self._logger = shared.get_logger('client', log_handler, log_formatter)
 
     def __enter__(self):
         return self
@@ -168,11 +168,7 @@ class TaskHubGrpcClient:
         start_at: Optional[datetime] = None,
         reuse_id_policy: Optional[pb.OrchestrationIdReusePolicy] = None,
     ) -> str:
-        name = (
-            orchestrator
-            if isinstance(orchestrator, str)
-            else task.get_name(orchestrator)
-        )
+        name = orchestrator if isinstance(orchestrator, str) else task.get_name(orchestrator)
 
         req = pb.CreateInstanceRequest(
             name=name,
@@ -180,56 +176,44 @@ class TaskHubGrpcClient:
             input=wrappers_pb2.StringValue(value=shared.to_json(input))
             if input is not None
             else None,
-            scheduledStartTimestamp=helpers.new_timestamp(start_at)
-            if start_at
-            else None,
-            version=wrappers_pb2.StringValue(value=""),
+            scheduledStartTimestamp=helpers.new_timestamp(start_at) if start_at else None,
+            version=wrappers_pb2.StringValue(value=''),
             orchestrationIdReusePolicy=reuse_id_policy,
         )
 
-        self._logger.info(
-            f"Starting new '{name}' instance with ID = '{req.instanceId}'."
-        )
+        self._logger.info(f"Starting new '{name}' instance with ID = '{req.instanceId}'.")
         res: pb.CreateInstanceResponse = self._stub.StartInstance(req)
         return res.instanceId
 
     def get_orchestration_state(
         self, instance_id: str, *, fetch_payloads: bool = True
     ) -> Optional[OrchestrationState]:
-        req = pb.GetInstanceRequest(
-            instanceId=instance_id, getInputsAndOutputs=fetch_payloads
-        )
+        req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         res: pb.GetInstanceResponse = self._stub.GetInstance(req)
         return new_orchestration_state(req.instanceId, res)
 
     def wait_for_orchestration_start(
         self, instance_id: str, *, fetch_payloads: bool = False, timeout: int = 0
     ) -> Optional[OrchestrationState]:
-        req = pb.GetInstanceRequest(
-            instanceId=instance_id, getInputsAndOutputs=fetch_payloads
-        )
+        req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
             grpc_timeout = None if timeout == 0 else timeout
             self._logger.info(
                 f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to start."
             )
-            res: pb.GetInstanceResponse = self._stub.WaitForInstanceStart(
-                req, timeout=grpc_timeout
-            )
+            res: pb.GetInstanceResponse = self._stub.WaitForInstanceStart(req, timeout=grpc_timeout)
             return new_orchestration_state(req.instanceId, res)
         except grpc.RpcError as rpc_error:
             if rpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # type: ignore
                 # Replace gRPC error with the built-in TimeoutError
-                raise TimeoutError("Timed-out waiting for the orchestration to start")
+                raise TimeoutError('Timed-out waiting for the orchestration to start')
             else:
                 raise
 
     def wait_for_orchestration_completion(
         self, instance_id: str, *, fetch_payloads: bool = True, timeout: int = 0
     ) -> Optional[OrchestrationState]:
-        req = pb.GetInstanceRequest(
-            instanceId=instance_id, getInputsAndOutputs=fetch_payloads
-        )
+        req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
             # gRPC timeout mapping (pytest unit tests may pass None explicitly)
             grpc_timeout = None if (timeout is None or timeout == 0) else timeout
@@ -248,16 +232,20 @@ class TaskHubGrpcClient:
             # For positive timeout, best-effort pre-check and short polling to avoid long server waits
             try:
                 # First check if the orchestration is already completed
-                print(f"[CLIENT DEBUG] Checking current state before waiting for {instance_id}")
-                current_state = self.get_orchestration_state(instance_id, fetch_payloads=fetch_payloads)
-                print(f"[CLIENT DEBUG] Current state: {current_state.runtime_status if current_state else 'None'}")
+                print(f'[CLIENT DEBUG] Checking current state before waiting for {instance_id}')
+                current_state = self.get_orchestration_state(
+                    instance_id, fetch_payloads=fetch_payloads
+                )
+                print(
+                    f"[CLIENT DEBUG] Current state: {current_state.runtime_status if current_state else 'None'}"
+                )
                 if current_state and current_state.runtime_status in [
                     OrchestrationStatus.COMPLETED,
                     OrchestrationStatus.FAILED,
                     OrchestrationStatus.TERMINATED,
                 ]:
                     print(
-                        f"[CLIENT DEBUG] Orchestration {instance_id} already in terminal state: {current_state.runtime_status}"
+                        f'[CLIENT DEBUG] Orchestration {instance_id} already in terminal state: {current_state.runtime_status}'
                     )
                     return current_state
 
@@ -268,7 +256,7 @@ class TaskHubGrpcClient:
                 poll_start = time.time()
                 poll_interval = 0.1
 
-                print(f"[CLIENT DEBUG] Starting polling for up to {poll_timeout}s")
+                print(f'[CLIENT DEBUG] Starting polling for up to {poll_timeout}s')
                 while time.time() - poll_start < poll_timeout:
                     current_state = self.get_orchestration_state(
                         instance_id, fetch_payloads=fetch_payloads
@@ -283,28 +271,26 @@ class TaskHubGrpcClient:
                         OrchestrationStatus.TERMINATED,
                     ]:
                         print(
-                            f"[CLIENT DEBUG] Found terminal state during polling: {current_state.runtime_status}"
+                            f'[CLIENT DEBUG] Found terminal state during polling: {current_state.runtime_status}'
                         )
                         return current_state
 
                     time.sleep(poll_interval)
                     poll_interval = min(poll_interval * 1.5, 1.0)  # Exponential backoff, max 1s
-                print(f"[CLIENT DEBUG] Polling completed, no terminal state found")
+                print(f'[CLIENT DEBUG] Polling completed, no terminal state found')
             except Exception:
                 # Ignore pre-check/poll issues (e.g., mocked stubs in unit tests) and fall back
                 pass
 
-            self._logger.info(
-                f"Waiting up to {timeout}s for instance '{instance_id}' to complete."
-            )
+            self._logger.info(f"Waiting up to {timeout}s for instance '{instance_id}' to complete.")
             print(
-                f"[CLIENT DEBUG] About to call WaitForInstanceCompletion for {instance_id} with timeout {grpc_timeout}"
+                f'[CLIENT DEBUG] About to call WaitForInstanceCompletion for {instance_id} with timeout {grpc_timeout}'
             )
             res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
                 req, timeout=grpc_timeout
             )
             print(
-                f"[CLIENT DEBUG] WaitForInstanceCompletion returned successfully for {instance_id}"
+                f'[CLIENT DEBUG] WaitForInstanceCompletion returned successfully for {instance_id}'
             )
             state = new_orchestration_state(req.instanceId, res)
             if not state:
@@ -325,15 +311,17 @@ class TaskHubGrpcClient:
 
             return state
         except grpc.RpcError as rpc_error:
-            print(f"[CLIENT DEBUG] gRPC error in WaitForInstanceCompletion for {instance_id}: {rpc_error.code()} - {rpc_error.details()}")
+            print(
+                f'[CLIENT DEBUG] gRPC error in WaitForInstanceCompletion for {instance_id}: {rpc_error.code()} - {rpc_error.details()}'
+            )
             if rpc_error.code() == grpc.StatusCode.DEADLINE_EXCEEDED:  # type: ignore
-                print(f"[CLIENT DEBUG] Deadline exceeded for {instance_id}, converting to TimeoutError")
-                # Replace gRPC error with the built-in TimeoutError
-                raise TimeoutError(
-                    "Timed-out waiting for the orchestration to complete"
+                print(
+                    f'[CLIENT DEBUG] Deadline exceeded for {instance_id}, converting to TimeoutError'
                 )
+                # Replace gRPC error with the built-in TimeoutError
+                raise TimeoutError('Timed-out waiting for the orchestration to complete')
             else:
-                print(f"[CLIENT DEBUG] Re-raising non-timeout gRPC error for {instance_id}")
+                print(f'[CLIENT DEBUG] Re-raising non-timeout gRPC error for {instance_id}')
                 raise
 
     def raise_orchestration_event(
@@ -342,9 +330,7 @@ class TaskHubGrpcClient:
         req = pb.RaiseEventRequest(
             instanceId=instance_id,
             name=event_name,
-            input=wrappers_pb2.StringValue(value=shared.to_json(data))
-            if data
-            else None,
+            input=wrappers_pb2.StringValue(value=shared.to_json(data)) if data else None,
         )
 
         self._logger.info(f"Raising event '{event_name}' for instance '{instance_id}'.")
@@ -355,9 +341,7 @@ class TaskHubGrpcClient:
     ):
         req = pb.TerminateRequest(
             instanceId=instance_id,
-            output=wrappers_pb2.StringValue(value=shared.to_json(output))
-            if output
-            else None,
+            output=wrappers_pb2.StringValue(value=shared.to_json(output)) if output else None,
             recursive=recursive,
         )
 

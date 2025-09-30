@@ -11,7 +11,7 @@ from durabletask.worker import TaskHubGrpcWorker
 def risky_activity(_, n: int) -> int:
     """Activity that fails non-retryably when given a negative number."""
     if n < 0:
-        raise NonRetryableError("Negative input is not allowed")
+        raise NonRetryableError('Negative input is not allowed')
     return n * 2
 
 
@@ -28,7 +28,7 @@ async def non_retryable_workflow(ctx: AsyncWorkflowContext, n: int) -> int:
 
 def main():
     # Configure endpoint (override as needed)
-    os.environ.setdefault("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
+    os.environ.setdefault('DURABLETASK_GRPC_ENDPOINT', 'localhost:4001')
 
     with TaskHubGrpcWorker() as worker:
         worker.add_activity(risky_activity)
@@ -38,28 +38,25 @@ def main():
 
         client = TaskHubGrpcClient()
 
-        print("\nCase 1: Non-retryable failure (n = -1)")
+        print('\nCase 1: Non-retryable failure (n = -1)')
         inst1 = client.schedule_new_orchestration(non_retryable_workflow, input=-1)
         state1 = client.wait_for_orchestration_completion(inst1, timeout=60)
         if state1 and state1.failure_details:
-            print("Status:", state1.runtime_status)
-            print("Error type:", state1.failure_details.error_type)
-            print("Message:", state1.failure_details.message)
+            print('Status:', state1.runtime_status)
+            print('Error type:', state1.failure_details.error_type)
+            print('Message:', state1.failure_details.message)
         else:
-            print("Unexpected success:", state1 and state1.serialized_output)
+            print('Unexpected success:', state1 and state1.serialized_output)
 
-        print("\nCase 2: Success (n = 5)")
+        print('\nCase 2: Success (n = 5)')
         inst2 = client.schedule_new_orchestration(non_retryable_workflow, input=5)
         state2 = client.wait_for_orchestration_completion(inst2, timeout=60)
         if state2:
             state2.raise_if_failed()
-            print("Output:", state2.serialized_output)
+            print('Output:', state2.serialized_output)
 
         time.sleep(1)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
-
-
-

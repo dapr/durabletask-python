@@ -32,37 +32,38 @@ class TestNonDeterminismDetector:
     def setup_method(self):
         """Set up test fixtures."""
         self.mock_ctx = Mock()
-        self.mock_ctx.instance_id = "test-instance"
+        self.mock_ctx.instance_id = 'test-instance'
         self.mock_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
 
     def test_non_determinism_warning_creation(self):
         """Test creating NonDeterminismWarning."""
-        warning = NonDeterminismWarning("Test warning message")
-        assert str(warning) == "Test warning message"
+        warning = NonDeterminismWarning('Test warning message')
+        assert str(warning) == 'Test warning message'
         assert issubclass(NonDeterminismWarning, UserWarning)
 
     def test_detector_creation(self):
         """Test creating _NonDeterminismDetector."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
         assert detector.async_ctx is self.mock_ctx
-        assert detector.mode == "best_effort"
+        assert detector.mode == 'best_effort'
         assert detector.detected_calls == set()
 
     def test_detector_context_manager_off_mode(self):
         """Test detector context manager with off mode."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "off")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'off')
+
         with detector:
             # Should not set up tracing in off mode
             pass
-        
+
         # Should complete without issues
 
     def test_detector_context_manager_best_effort_mode(self):
         """Test detector context manager with best_effort mode."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
 
         import sys
+
         pre_trace = sys.gettrace()
         with detector:
             # Should set up tracing
@@ -74,221 +75,220 @@ class TestNonDeterminismDetector:
 
     def test_detector_trace_calls_detection(self):
         """Test that detector can identify non-deterministic calls."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         # Create a mock frame that looks like it's calling datetime.now
         mock_frame = Mock()
-        mock_frame.f_code.co_filename = "/test/file.py"
-        mock_frame.f_code.co_name = "now"
-        mock_frame.f_locals = {
-            "datetime": Mock(__module__="datetime")
-        }
-        
+        mock_frame.f_code.co_filename = '/test/file.py'
+        mock_frame.f_code.co_name = 'now'
+        mock_frame.f_locals = {'datetime': Mock(__module__='datetime')}
+
         # Test the frame checking logic
         detector._check_frame_for_non_determinism(mock_frame)
-        
+
         # Should detect the call (implementation may vary)
 
     def test_detector_strict_mode_raises_error(self):
         """Test that detector raises error in strict mode."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
+
         # Create a mock frame for a non-deterministic call
         mock_frame = Mock()
-        mock_frame.f_code.co_filename = "/test/file.py"
-        mock_frame.f_code.co_name = "random"
-        mock_frame.f_locals = {
-            "random_module": Mock(__module__="random")
-        }
-        
+        mock_frame.f_code.co_filename = '/test/file.py'
+        mock_frame.f_code.co_name = 'random'
+        mock_frame.f_locals = {'random_module': Mock(__module__='random')}
+
         # Should raise error in strict mode when non-deterministic call detected
         with pytest.raises(AsyncWorkflowError):
-            detector._handle_non_deterministic_call("random.random", mock_frame)
+            detector._handle_non_deterministic_call('random.random', mock_frame)
 
     def test_fast_map_random_whitelist_bound_self(self):
         """random.* with deterministic bound self should be whitelisted in fast map."""
         # Prepare detector in strict (whitelist applies before error path)
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
 
         class BoundSelf:
             pass
+
         bs = BoundSelf()
-        setattr(bs, "_dt_deterministic", True)
+        setattr(bs, '_dt_deterministic', True)
 
         frame = Mock()
-        frame.f_code.co_filename = "/test/rand.py"
-        frame.f_code.co_name = "random"  # function name
-        frame.f_globals = {"__name__": "random"}
-        frame.f_locals = {"self": bs}
+        frame.f_code.co_filename = '/test/rand.py'
+        frame.f_code.co_name = 'random'  # function name
+        frame.f_globals = {'__name__': 'random'}
+        frame.f_locals = {'self': bs}
 
         # Should not raise or warn; returns early
         detector._check_frame_for_non_determinism(frame)
 
     def test_fast_map_best_effort_warning_and_early_return(self):
         """best_effort should warn once for fast-map hit (e.g., os.getenv) and return early."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
 
         frame = Mock()
-        frame.f_code.co_filename = "/test/osmod.py"
-        frame.f_code.co_name = "getenv"
-        frame.f_globals = {"__name__": "os"}
+        frame.f_code.co_filename = '/test/osmod.py'
+        frame.f_code.co_name = 'getenv'
+        frame.f_globals = {'__name__': 'os'}
         frame.f_locals = {}
 
         with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+            warnings.simplefilter('always')
             detector._check_frame_for_non_determinism(frame)
         assert any(issubclass(rec.category, NonDeterminismWarning) for rec in w)
 
     def test_fast_map_random_strict_raises_when_not_deterministic(self):
         """random.* without deterministic bound self should trigger strict violation via fast map."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
 
         frame = Mock()
-        frame.f_code.co_filename = "/test/rand2.py"
-        frame.f_code.co_name = "randint"
-        frame.f_globals = {"__name__": "random"}
-        frame.f_locals = {"self": object()}  # no _dt_deterministic
+        frame.f_code.co_filename = '/test/rand2.py'
+        frame.f_code.co_name = 'randint'
+        frame.f_globals = {'__name__': 'random'}
+        frame.f_locals = {'self': object()}  # no _dt_deterministic
 
         with pytest.raises(AsyncWorkflowError):
             detector._check_frame_for_non_determinism(frame)
 
     def test_detector_off_mode_no_tracing(self):
         """Test detector in off mode doesn't set up tracing."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "off")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'off')
+
         import sys
+
         original_trace = sys.gettrace()
-        
+
         with detector:
             # Should not change trace function in off mode
             assert sys.gettrace() is original_trace
-        
+
         # Should still be the same after exit
         assert sys.gettrace() is original_trace
 
     def test_detector_exception_in_globals_access(self):
         """Test exception handling when accessing frame globals."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         # Create a frame that raises exception when accessing f_globals
         frame = Mock()
-        frame.f_code.co_filename = "/test/bad.py"
-        frame.f_code.co_name = "test_func"
+        frame.f_code.co_filename = '/test/bad.py'
+        frame.f_code.co_name = 'test_func'
         frame.f_globals = Mock()
-        frame.f_globals.get.side_effect = Exception("globals access failed")
-        
+        frame.f_globals.get.side_effect = Exception('globals access failed')
+
         # Should not raise, just handle gracefully
         detector._check_frame_for_non_determinism(frame)
 
     def test_detector_exception_in_whitelist_check(self):
         """Test exception handling in whitelist check."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
+
         frame = Mock()
-        frame.f_code.co_filename = "/test/rand3.py"
-        frame.f_code.co_name = "random"
-        frame.f_globals = {"__name__": "random"}
-        
+        frame.f_code.co_filename = '/test/rand3.py'
+        frame.f_code.co_name = 'random'
+        frame.f_globals = {'__name__': 'random'}
+
         # Create a self object that raises exception when accessing _dt_deterministic
         class BadSelf:
             @property
             def _dt_deterministic(self):
-                raise Exception("attribute access failed")
-        
-        frame.f_locals = {"self": BadSelf()}
-        
+                raise Exception('attribute access failed')
+
+        frame.f_locals = {'self': BadSelf()}
+
         # Should handle exception and continue to error path
         with pytest.raises(AsyncWorkflowError):
             detector._check_frame_for_non_determinism(frame)
 
     def test_detector_non_mapping_globals(self):
         """Test handling of non-mapping f_globals."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
+
         frame = Mock()
-        frame.f_code.co_filename = "/test/bad_globals.py"
-        frame.f_code.co_name = "getenv"
-        frame.f_globals = "not a dict"  # Non-mapping globals
+        frame.f_code.co_filename = '/test/bad_globals.py'
+        frame.f_code.co_name = 'getenv'
+        frame.f_globals = 'not a dict'  # Non-mapping globals
         frame.f_locals = {}
-        
+
         # Should handle gracefully without raising
         detector._check_frame_for_non_determinism(frame)
 
     def test_detector_exception_in_pattern_check(self):
         """Test exception handling in pattern checking loop."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "strict")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'strict')
+
         frame = Mock()
-        frame.f_code.co_filename = "/test/pattern.py"
-        frame.f_code.co_name = "time"
-        frame.f_globals = {"time.time": Mock(side_effect=Exception("access failed"))}
+        frame.f_code.co_filename = '/test/pattern.py'
+        frame.f_code.co_name = 'time'
+        frame.f_globals = {'time.time': Mock(side_effect=Exception('access failed'))}
         frame.f_locals = {}
-        
+
         # Should handle exception and continue
         detector._check_frame_for_non_determinism(frame)
 
     def test_detector_debug_mode_enabled(self):
         """Test detector with debug mode enabled."""
         self.mock_ctx._debug_mode = True
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         frame = Mock()
-        frame.f_code.co_filename = "/test/debug.py"
-        frame.f_code.co_name = "now"
+        frame.f_code.co_filename = '/test/debug.py'
+        frame.f_code.co_name = 'now'
         frame.f_lineno = 42
-        
+
         # Capture print output
         import io
         import sys
+
         captured_output = io.StringIO()
         sys.stdout = captured_output
-        
+
         try:
-            detector._handle_non_deterministic_call("datetime.now", frame)
+            detector._handle_non_deterministic_call('datetime.now', frame)
             output = captured_output.getvalue()
-            assert "[WORKFLOW DEBUG]" in output
-            assert "datetime.now" in output
+            assert '[WORKFLOW DEBUG]' in output
+            assert 'datetime.now' in output
         finally:
             sys.stdout = sys.__stdout__
 
     def test_detector_noop_trace_method(self):
         """Test _noop_trace method (line 56)."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         frame = Mock()
-        result = detector._noop_trace(frame, "call", None)
+        result = detector._noop_trace(frame, 'call', None)
         assert result is None
 
     def test_detector_trace_calls_non_call_event(self):
         """Test _trace_calls with non-call event (lines 79-80)."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         frame = Mock()
-        
+
         # Test with no original trace function
-        result = detector._trace_calls(frame, "return", None)
+        result = detector._trace_calls(frame, 'return', None)
         assert result is None
-        
+
         # Test with original trace function
-        original_trace = Mock(return_value="original_result")
+        original_trace = Mock(return_value='original_result')
         detector.original_trace_func = original_trace
-        result = detector._trace_calls(frame, "return", None)
-        assert result == "original_result"
-        original_trace.assert_called_once_with(frame, "return", None)
+        result = detector._trace_calls(frame, 'return', None)
+        assert result == 'original_result'
+        original_trace.assert_called_once_with(frame, 'return', None)
 
     def test_detector_trace_calls_with_original_func(self):
         """Test _trace_calls returning original trace func (line 86)."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         frame = Mock()
-        frame.f_code.co_filename = "/test/safe.py"  # Safe filename
-        frame.f_code.co_name = "safe_func"
+        frame.f_code.co_filename = '/test/safe.py'  # Safe filename
+        frame.f_code.co_name = 'safe_func'
         frame.f_globals = {}
-        
+
         # Test with original trace function
         original_trace = Mock()
         detector.original_trace_func = original_trace
-        result = detector._trace_calls(frame, "call", None)
+        result = detector._trace_calls(frame, 'call', None)
         assert result is original_trace
 
 
@@ -298,16 +298,16 @@ class TestSandboxScope:
     def setup_method(self):
         """Set up test fixtures."""
         self.mock_ctx = Mock()
-        self.mock_ctx.instance_id = "test-instance"
+        self.mock_ctx.instance_id = 'test-instance'
         self.mock_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         self.mock_ctx.random.return_value = random.Random(12345)
         self.mock_ctx.uuid4.return_value = uuid.UUID('12345678-1234-5678-1234-567812345678')
         self.mock_ctx.now.return_value = datetime.datetime(2023, 1, 1, 12, 0, 0)
-        
+
         # Add _base_ctx for sandbox patching
         self.mock_ctx._base_ctx = Mock()
         self.mock_ctx._base_ctx.create_timer = Mock(return_value=Mock())
-        
+
         # Ensure detection is not disabled
         self.mock_ctx._detection_disabled = False
 
@@ -315,16 +315,16 @@ class TestSandboxScope:
         """Test sandbox_scope with off mode."""
         original_sleep = asyncio.sleep
         original_random = random.random
-        
-        with sandbox_scope(self.mock_ctx, "off"):
+
+        with sandbox_scope(self.mock_ctx, 'off'):
             # Should not patch anything in off mode
             assert asyncio.sleep is original_sleep
             assert random.random is original_random
 
     def test_sandbox_scope_invalid_mode(self):
         """Test sandbox_scope with invalid mode."""
-        with pytest.raises(ValueError, match="Invalid sandbox mode"):
-            with sandbox_scope(self.mock_ctx, "invalid_mode"):
+        with pytest.raises(ValueError, match='Invalid sandbox mode'):
+            with sandbox_scope(self.mock_ctx, 'invalid_mode'):
                 pass
 
     def test_sandbox_scope_best_effort_patches(self):
@@ -333,14 +333,14 @@ class TestSandboxScope:
         original_random = random.random
         original_uuid4 = uuid.uuid4
         original_time = time.time
-        
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             # Should patch functions
             assert asyncio.sleep is not original_sleep
             assert random.random is not original_random
             assert uuid.uuid4 is not original_uuid4
             assert time.time is not original_time
-        
+
         # Should restore originals
         assert asyncio.sleep is original_sleep
         assert random.random is original_random
@@ -350,12 +350,12 @@ class TestSandboxScope:
     def test_sandbox_scope_strict_mode_blocks_dangerous_functions(self):
         """Test sandbox_scope blocks dangerous functions in strict mode."""
         original_open = open
-        
-        with sandbox_scope(self.mock_ctx, "strict"):
+
+        with sandbox_scope(self.mock_ctx, 'strict'):
             # Should block dangerous functions
-            with pytest.raises(AsyncWorkflowError, match="File I/O operations are not allowed"):
-                open("test.txt", "r")
-        
+            with pytest.raises(AsyncWorkflowError, match='File I/O operations are not allowed'):
+                open('test.txt', 'r')
+
         # Should restore original
         assert open is original_open
 
@@ -364,11 +364,11 @@ class TestSandboxScope:
         from durabletask.aio import AsyncWorkflowContext
 
         base_ctx = Mock()
-        base_ctx.instance_id = "rng-ctx"
+        base_ctx.instance_id = 'rng-ctx'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
 
-        with sandbox_scope(async_ctx, "strict"):
+        with sandbox_scope(async_ctx, 'strict'):
             # Allowed: via ctx.random() (detector should whitelist)
             val1 = async_ctx.random().randint(1, 10)
             assert isinstance(val1, int)
@@ -382,11 +382,11 @@ class TestSandboxScope:
         from durabletask.aio import AsyncWorkflowContext
 
         base_ctx = Mock()
-        base_ctx.instance_id = "det-helpers"
+        base_ctx.instance_id = 'det-helpers'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
 
-        with sandbox_scope(async_ctx, "strict"):
+        with sandbox_scope(async_ctx, 'strict'):
             # now()
             now_val = async_ctx.now()
             assert isinstance(now_val, datetime.datetime)
@@ -394,6 +394,7 @@ class TestSandboxScope:
             # uuid4()
             uid = async_ctx.uuid4()
             import uuid as _uuid
+
             assert isinstance(uid, _uuid.UUID)
 
             # random().random, randint, choice
@@ -412,16 +413,16 @@ class TestSandboxScope:
 
     def test_sandbox_scope_patches_asyncio_sleep(self):
         """Test that asyncio.sleep is properly patched within sandbox context."""
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             # Import asyncio within the sandbox context to get the patched version
             import asyncio as sandboxed_asyncio
 
             # Call the patched sleep directly
             patched_sleep_result = sandboxed_asyncio.sleep(1.0)
-            
+
             # Should return our patched sleep awaitable
             assert hasattr(patched_sleep_result, '__await__')
-            
+
             # The awaitable should yield a timer task when awaited
             awaitable_gen = patched_sleep_result.__await__()
             try:
@@ -433,12 +434,12 @@ class TestSandboxScope:
 
     def test_sandbox_scope_patches_random_functions(self):
         """Test that random functions are properly patched."""
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             # Should use deterministic random
             val1 = random.random()
             val2 = random.randint(1, 100)
             val3 = random.randrange(10)
-            
+
             assert isinstance(val1, float)
             assert isinstance(val2, int)
             assert isinstance(val3, int)
@@ -447,17 +448,17 @@ class TestSandboxScope:
 
     def test_sandbox_scope_patches_uuid4(self):
         """Test that uuid.uuid4 is properly patched."""
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             test_uuid = uuid.uuid4()
             assert isinstance(test_uuid, uuid.UUID)
             assert test_uuid.version == 4
 
     def test_sandbox_scope_patches_time_functions(self):
         """Test that time functions are properly patched."""
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             current_time = time.time()
             assert isinstance(current_time, float)
-            
+
             if hasattr(time, 'time_ns'):
                 current_time_ns = time.time_ns()
                 assert isinstance(current_time_ns, int)
@@ -465,57 +466,60 @@ class TestSandboxScope:
     def test_patched_randrange_step_branch(self):
         """Hit patched randrange path with step != 1 to cover the loop branch."""
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "step-test"
+        base_ctx.instance_id = 'step-test'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             v = random.randrange(1, 10, 3)
             assert 1 <= v < 10 and (v - 1) % 3 == 0
 
     def test_sandbox_scope_strict_mode_blocks_os_urandom(self):
         """Test that os.urandom is blocked in strict mode."""
-        with sandbox_scope(self.mock_ctx, "strict"):
-            with pytest.raises(AsyncWorkflowError, match="os.urandom is not allowed"):
+        with sandbox_scope(self.mock_ctx, 'strict'):
+            with pytest.raises(AsyncWorkflowError, match='os.urandom is not allowed'):
                 os.urandom(16)
 
     def test_sandbox_scope_strict_mode_blocks_secrets(self):
         """Test that secrets module is blocked in strict mode."""
-        with sandbox_scope(self.mock_ctx, "strict"):
-            with pytest.raises(AsyncWorkflowError, match="secrets module is not allowed"):
+        with sandbox_scope(self.mock_ctx, 'strict'):
+            with pytest.raises(AsyncWorkflowError, match='secrets module is not allowed'):
                 secrets.token_bytes(16)
-            
-            with pytest.raises(AsyncWorkflowError, match="secrets module is not allowed"):
+
+            with pytest.raises(AsyncWorkflowError, match='secrets module is not allowed'):
                 secrets.token_hex(16)
 
     def test_sandbox_scope_strict_mode_blocks_asyncio_create_task(self):
         """Test that asyncio.create_task is blocked in strict mode."""
+
         async def dummy_coro():
-            return "test"
-        
-        with sandbox_scope(self.mock_ctx, "strict"):
-            with pytest.raises(AsyncWorkflowError, match="asyncio.create_task is not allowed"):
+            return 'test'
+
+        with sandbox_scope(self.mock_ctx, 'strict'):
+            with pytest.raises(AsyncWorkflowError, match='asyncio.create_task is not allowed'):
                 asyncio.create_task(dummy_coro())
 
     @pytest.mark.asyncio
     async def test_asyncio_sleep_zero_passthrough(self):
         """sleep(0) should use original asyncio.sleep (passthrough branch)."""
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "sleep-zero"
+        base_ctx.instance_id = 'sleep-zero'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             # Should not raise; executes passthrough branch in patched_sleep
             await asyncio.sleep(0)
 
     def test_strict_restores_os_and_secrets_on_exit(self):
         """Ensure strict mode restores os.urandom and secrets functions on exit."""
-        orig_urandom = getattr(os, "urandom", None)
-        orig_token_bytes = getattr(secrets, "token_bytes", None)
-        orig_token_hex = getattr(secrets, "token_hex", None)
+        orig_urandom = getattr(os, 'urandom', None)
+        orig_token_bytes = getattr(secrets, 'token_bytes', None)
+        orig_token_hex = getattr(secrets, 'token_hex', None)
 
-        with sandbox_scope(self.mock_ctx, "strict"):
+        with sandbox_scope(self.mock_ctx, 'strict'):
             if orig_urandom is not None:
                 with pytest.raises(AsyncWorkflowError):
                     os.urandom(1)
@@ -538,11 +542,12 @@ class TestSandboxScope:
     async def test_empty_gather_caching_replay(self):
         """Empty gather should be awaitable and replay cached result on repeated awaits."""
         from durabletask.aio import AsyncWorkflowContext
+
         mock_base_ctx = Mock()
-        mock_base_ctx.instance_id = "gather-cache"
+        mock_base_ctx.instance_id = 'gather-cache'
         mock_base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(mock_base_ctx)
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             g0 = asyncio.gather()
             r0a = await g0
             r0b = await g0
@@ -553,11 +558,12 @@ class TestSandboxScope:
         from datetime import timezone
 
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "tz-test"
+        base_ctx.instance_id = 'tz-test'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             now_utc = datetime.datetime.now(tz=timezone.utc)
             assert now_utc.tzinfo is timezone.utc
 
@@ -565,56 +571,65 @@ class TestSandboxScope:
     async def test_create_task_allowed_in_best_effort(self):
         """In best_effort mode, create_task should be allowed and runnable."""
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "best-effort-ct"
+        base_ctx.instance_id = 'best-effort-ct'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
+
         async def quick():
             await asyncio.sleep(0)
-            return "ok"
-        with sandbox_scope(async_ctx, "best_effort"):
+            return 'ok'
+
+        with sandbox_scope(async_ctx, 'best_effort'):
             t = asyncio.create_task(quick())
-            assert await t == "ok"
+            assert await t == 'ok'
 
     @pytest.mark.asyncio
     async def test_create_task_blocked_strict_no_unawaited_warning(self):
         """Strict mode: ensure blocked coroutine is closed (no 'never awaited' warnings)."""
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "strict-ct"
+        base_ctx.instance_id = 'strict-ct'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
+
         async def dummy():
             return 1
+
         with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+            warnings.simplefilter('always')
             with pytest.raises(AsyncWorkflowError):
-                with sandbox_scope(async_ctx, "strict"):
+                with sandbox_scope(async_ctx, 'strict'):
                     asyncio.create_task(dummy())
-            assert not any("was never awaited" in str(rec.message) for rec in w)
+            assert not any('was never awaited' in str(rec.message) for rec in w)
 
     @pytest.mark.asyncio
     async def test_env_disable_detection_allows_create_task(self, monkeypatch: pytest.MonkeyPatch):
         """DAPR_WF_DISABLE_DETECTION=true forces mode off; create_task allowed."""
         from durabletask.aio import AsyncWorkflowContext
+
         base_ctx = Mock()
-        base_ctx.instance_id = "env-off"
+        base_ctx.instance_id = 'env-off'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        monkeypatch.setenv("DAPR_WF_DISABLE_DETECTION", "true")
+        monkeypatch.setenv('DAPR_WF_DISABLE_DETECTION', 'true')
+
         async def quick():
             await asyncio.sleep(0)
-            return "ok"
-        with sandbox_scope(async_ctx, "strict"):
+            return 'ok'
+
+        with sandbox_scope(async_ctx, 'strict'):
             t = asyncio.create_task(quick())
-            assert await t == "ok"
+            assert await t == 'ok'
 
     def test_sandbox_scope_global_disable_env_var(self):
         """Test that DAPR_WF_DISABLE_DETECTION environment variable works."""
-        with patch.dict(os.environ, {"DAPR_WF_DISABLE_DETECTION": "true"}):
+        with patch.dict(os.environ, {'DAPR_WF_DISABLE_DETECTION': 'true'}):
             original_random = random.random
-            
-            with sandbox_scope(self.mock_ctx, "best_effort"):
+
+            with sandbox_scope(self.mock_ctx, 'best_effort'):
                 # Should not patch when globally disabled
                 assert random.random is original_random
 
@@ -622,85 +637,87 @@ class TestSandboxScope:
         """Test that context-level detection disable works."""
         self.mock_ctx._detection_disabled = True
         original_random = random.random
-        
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             # Should not patch when disabled on context
             assert random.random is original_random
 
     def test_rng_context_fallback_to_base_ctx(self):
         """Sandbox should fall back to _base_ctx.instance_id/current_utc_datetime when missing on async_ctx.
-        
+
         Same context twice -> identical deterministic sequence
         Change only instance_id -> different sequence
         Change only current_utc_datetime -> different sequence
         """
+
         class MinimalCtx:
             pass
+
         fallback = MinimalCtx()
         fallback._base_ctx = Mock()
-        fallback._base_ctx.instance_id = "fallback-instance"
+        fallback._base_ctx.instance_id = 'fallback-instance'
         fallback._base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
 
         # Ensure MinimalCtx lacks direct attributes
-        assert not hasattr(fallback, "instance_id")
-        assert not hasattr(fallback, "current_utc_datetime")
-        assert not hasattr(fallback, "now")
+        assert not hasattr(fallback, 'instance_id')
+        assert not hasattr(fallback, 'current_utc_datetime')
+        assert not hasattr(fallback, 'now')
 
         # Same fallback context twice -> identical deterministic sequence
-        with sandbox_scope(fallback, "best_effort"):
+        with sandbox_scope(fallback, 'best_effort'):
             seq1 = [random.random() for _ in range(3)]
-        with sandbox_scope(fallback, "best_effort"):
+        with sandbox_scope(fallback, 'best_effort'):
             seq2 = [random.random() for _ in range(3)]
         assert seq1 == seq2
 
         # Change only instance_id -> different sequence
         fallback_id = MinimalCtx()
         fallback_id._base_ctx = Mock()
-        fallback_id._base_ctx.instance_id = "fallback-instance-2"
+        fallback_id._base_ctx.instance_id = 'fallback-instance-2'
         fallback_id._base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
-        with sandbox_scope(fallback_id, "best_effort"):
+        with sandbox_scope(fallback_id, 'best_effort'):
             seq_id = [random.random() for _ in range(3)]
         assert seq_id != seq1
 
         # Change only current_utc_datetime -> different sequence
         fallback_time = MinimalCtx()
         fallback_time._base_ctx = Mock()
-        fallback_time._base_ctx.instance_id = "fallback-instance"
+        fallback_time._base_ctx.instance_id = 'fallback-instance'
         fallback_time._base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 1)
-        with sandbox_scope(fallback_time, "best_effort"):
+        with sandbox_scope(fallback_time, 'best_effort'):
             seq_time = [random.random() for _ in range(3)]
         assert seq_time != seq1
 
     def test_sandbox_scope_nested_contexts(self):
         """Test nested sandbox contexts."""
         original_random = random.random
-        
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             patched_random_1 = random.random
             assert patched_random_1 is not original_random
-            
-            with sandbox_scope(self.mock_ctx, "strict"):
+
+            with sandbox_scope(self.mock_ctx, 'strict'):
                 patched_random_2 = random.random
                 # Should be patched differently or same
                 assert patched_random_2 is not original_random
-            
+
             # Should restore to first patch level
             assert random.random is patched_random_1
-        
+
         # Should restore to original
         assert random.random is original_random
 
     def test_sandbox_scope_exception_handling(self):
         """Test that sandbox properly restores functions even if exception occurs."""
         original_random = random.random
-        
+
         try:
-            with sandbox_scope(self.mock_ctx, "best_effort"):
+            with sandbox_scope(self.mock_ctx, 'best_effort'):
                 assert random.random is not original_random
-                raise ValueError("Test exception")
+                raise ValueError('Test exception')
         except ValueError:
             pass
-        
+
         # Should still restore original even after exception
         assert random.random is original_random
 
@@ -708,53 +725,54 @@ class TestSandboxScope:
         """Test that sandbox provides deterministic behavior."""
         results1 = []
         results2 = []
-        
+
         # First run
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             results1.append(random.random())
             results1.append(random.randint(1, 100))
             results1.append(str(uuid.uuid4()))
             results1.append(time.time())
-        
+
         # Second run with same context
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             results2.append(random.random())
             results2.append(random.randint(1, 100))
             results2.append(str(uuid.uuid4()))
             results2.append(time.time())
-        
+
         # Should be deterministic (same results)
         assert results1 == results2
 
     def test_sandbox_scope_different_contexts_different_results(self):
         """Test that different contexts produce different results."""
         mock_ctx2 = Mock()
-        mock_ctx2.instance_id = "different-instance"
+        mock_ctx2.instance_id = 'different-instance'
         mock_ctx2.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         mock_ctx2.random.return_value = random.Random(54321)
         mock_ctx2.uuid4.return_value = uuid.UUID('87654321-4321-8765-4321-876543218765')
         mock_ctx2.now.return_value = datetime.datetime(2023, 1, 1, 12, 0, 0)
         mock_ctx2._detection_disabled = False
-        
+
         results1 = []
         results2 = []
-        
+
         # First context
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             results1.append(random.random())
             results1.append(str(uuid.uuid4()))
-        
+
         # Different context
-        with sandbox_scope(mock_ctx2, "best_effort"):
+        with sandbox_scope(mock_ctx2, 'best_effort'):
             results2.append(random.random())
             results2.append(str(uuid.uuid4()))
-        
+
         # Should be different
         assert results1 != results2
 
     def test_alias_context_managers_cover(self):
         """Call the alias context managers to cover their paths."""
         from durabletask.aio import sandbox_best_effort, sandbox_off, sandbox_strict
+
         with sandbox_off(self.mock_ctx):
             pass
         with sandbox_best_effort(self.mock_ctx):
@@ -775,8 +793,8 @@ class TestSandboxScope:
         # Mock now() to return proper datetime
         minimal_ctx.now = Mock(return_value=datetime.datetime(2023, 1, 1, 12, 0, 0))
         minimal_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
-        
-        with sandbox_scope(minimal_ctx, "best_effort"):
+
+        with sandbox_scope(minimal_ctx, 'best_effort'):
             # Should use fallback values
             val = random.random()
             assert isinstance(val, float)
@@ -784,14 +802,14 @@ class TestSandboxScope:
     def test_sandbox_context_with_now_exception(self):
         """Test sandbox when ctx.now() raises exception."""
         from durabletask.aio import AsyncWorkflowContext
-        
+
         ctx = Mock()
         ctx._detection_disabled = False
-        ctx.instance_id = "test"
-        ctx.now = Mock(side_effect=Exception("now() failed"))
+        ctx.instance_id = 'test'
+        ctx.now = Mock(side_effect=Exception('now() failed'))
         ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
-        
-        with sandbox_scope(ctx, "best_effort"):
+
+        with sandbox_scope(ctx, 'best_effort'):
             # Should fallback to current_utc_datetime
             val = random.random()
             assert isinstance(val, float)
@@ -805,8 +823,8 @@ class TestSandboxScope:
         ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         # Mock now() to return proper datetime
         ctx.now = Mock(return_value=datetime.datetime(2023, 1, 1, 12, 0, 0))
-        
-        with sandbox_scope(ctx, "best_effort"):
+
+        with sandbox_scope(ctx, 'best_effort'):
             # Should use empty string fallback for instance_id
             val = random.random()
             assert isinstance(val, float)
@@ -814,27 +832,27 @@ class TestSandboxScope:
     def test_sandbox_rng_setattr_exception(self):
         """Test sandbox when setattr on rng fails."""
         from durabletask.aio import AsyncWorkflowContext
-        
+
         base_ctx = Mock()
-        base_ctx.instance_id = "test"
+        base_ctx.instance_id = 'test'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        
+
         # Mock deterministic_random to return an object that can't be modified
         with patch('durabletask.aio.sandbox.deterministic_random') as mock_rng:
             # Create a class that raises exception on setattr
             class ImmutableRNG:
                 def __setattr__(self, name, value):
-                    if name == "_dt_deterministic":
-                        raise Exception("setattr failed")
+                    if name == '_dt_deterministic':
+                        raise Exception('setattr failed')
                     super().__setattr__(name, value)
-                
+
                 def random(self):
                     return 0.5
-            
+
             mock_rng.return_value = ImmutableRNG()
-            
-            with sandbox_scope(async_ctx, "best_effort"):
+
+            with sandbox_scope(async_ctx, 'best_effort'):
                 # Should handle setattr exception gracefully
                 val = random.random()
                 assert isinstance(val, float)
@@ -847,9 +865,9 @@ class TestSandboxScope:
         original_time_ns = getattr(time_mod, 'time_ns', None)
         if hasattr(time_mod, 'time_ns'):
             delattr(time_mod, 'time_ns')
-        
+
         try:
-            with sandbox_scope(self.mock_ctx, "best_effort"):
+            with sandbox_scope(self.mock_ctx, 'best_effort'):
                 # Should work without time_ns
                 val = time_mod.time()
                 assert isinstance(val, float)
@@ -867,16 +885,16 @@ class TestSandboxScope:
         original_urandom = getattr(os, 'urandom', None)
         original_token_bytes = getattr(secrets, 'token_bytes', None)
         original_token_hex = getattr(secrets, 'token_hex', None)
-        
+
         if hasattr(os, 'urandom'):
             delattr(os, 'urandom')
         if hasattr(secrets, 'token_bytes'):
             delattr(secrets, 'token_bytes')
         if hasattr(secrets, 'token_hex'):
             delattr(secrets, 'token_hex')
-        
+
         try:
-            with sandbox_scope(self.mock_ctx, "strict"):
+            with sandbox_scope(self.mock_ctx, 'strict'):
                 # Should work without the optional functions
                 val = random.random()
                 assert isinstance(val, float)
@@ -898,16 +916,16 @@ class TestSandboxScope:
         original_urandom = getattr(os, 'urandom', None)
         original_token_bytes = getattr(secrets, 'token_bytes', None)
         original_token_hex = getattr(secrets, 'token_hex', None)
-        
+
         if hasattr(os, 'urandom'):
             delattr(os, 'urandom')
         if hasattr(secrets, 'token_bytes'):
             delattr(secrets, 'token_bytes')
         if hasattr(secrets, 'token_hex'):
             delattr(secrets, 'token_hex')
-        
+
         try:
-            with sandbox_scope(self.mock_ctx, "strict"):
+            with sandbox_scope(self.mock_ctx, 'strict'):
                 val = random.random()
                 assert isinstance(val, float)
             # Should exit cleanly even with missing functions
@@ -923,19 +941,19 @@ class TestSandboxScope:
     def test_sandbox_patched_sleep_with_base_ctx(self):
         """Test patched sleep accessing _base_ctx (lines 325-343)."""
         from durabletask.aio import AsyncWorkflowContext
-        
+
         base_ctx = Mock()
-        base_ctx.instance_id = "sleep-test"
+        base_ctx.instance_id = 'sleep-test'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         base_ctx.create_timer = Mock(return_value=Mock())
-        
+
         async_ctx = AsyncWorkflowContext(base_ctx)
-        
-        with sandbox_scope(async_ctx, "best_effort"):
+
+        with sandbox_scope(async_ctx, 'best_effort'):
             # Test positive delay - should use patched version
             sleep_awaitable = asyncio.sleep(1.0)
             assert hasattr(sleep_awaitable, '__await__')
-            
+
             # Test zero delay - should use original (passthrough)
             zero_sleep = asyncio.sleep(0)
             # This should be the original coroutine or our awaitable
@@ -946,47 +964,47 @@ class TestSandboxScope:
         import builtins
         import os
         import secrets
-        
-        with sandbox_scope(self.mock_ctx, "strict"):
+
+        with sandbox_scope(self.mock_ctx, 'strict'):
             # Test blocked open function (lines 588-593)
-            with pytest.raises(AsyncWorkflowError, match="File I/O operations are not allowed"):
-                builtins.open("test.txt", "r")
-            
+            with pytest.raises(AsyncWorkflowError, match='File I/O operations are not allowed'):
+                builtins.open('test.txt', 'r')
+
             # Test blocked os.urandom (lines 595-600) - if available
             if hasattr(os, 'urandom'):
-                with pytest.raises(AsyncWorkflowError, match="os.urandom is not allowed"):
+                with pytest.raises(AsyncWorkflowError, match='os.urandom is not allowed'):
                     os.urandom(16)
-            
+
             # Test blocked secrets functions (lines 602-607) - if available
             if hasattr(secrets, 'token_bytes'):
-                with pytest.raises(AsyncWorkflowError, match="secrets module is not allowed"):
+                with pytest.raises(AsyncWorkflowError, match='secrets module is not allowed'):
                     secrets.token_bytes(16)
-            
+
             if hasattr(secrets, 'token_hex'):
-                with pytest.raises(AsyncWorkflowError, match="secrets module is not allowed"):
+                with pytest.raises(AsyncWorkflowError, match='secrets module is not allowed'):
                     secrets.token_hex(16)
 
     def test_sandbox_restore_with_gather_and_create_task(self):
         """Test restore functions with gather and create_task (lines 624-628)."""
         import asyncio
-        
+
         original_gather = asyncio.gather
         original_create_task = getattr(asyncio, 'create_task', None)
-        
-        with sandbox_scope(self.mock_ctx, "best_effort"):
+
+        with sandbox_scope(self.mock_ctx, 'best_effort'):
             # gather should be patched in best_effort
             assert asyncio.gather is not original_gather
             # create_task is only patched in strict mode, not best_effort
-        
+
         # Should be restored
         assert asyncio.gather is original_gather
-        
+
         # Test strict mode where create_task is also patched
-        with sandbox_scope(self.mock_ctx, "strict"):
+        with sandbox_scope(self.mock_ctx, 'strict'):
             assert asyncio.gather is not original_gather
             if original_create_task is not None:
                 assert asyncio.create_task is not original_create_task
-        
+
         # Should be restored after strict mode too
         assert asyncio.gather is original_gather
         if original_create_task is not None:
@@ -995,50 +1013,53 @@ class TestSandboxScope:
     def test_sandbox_best_effort_debug_mode_tracing(self):
         """Test best_effort mode with debug mode enabled for full tracing (line 61)."""
         self.mock_ctx._debug_mode = True
-        
+
         import sys
+
         original_trace = sys.gettrace()
-        
-        detector = _NonDeterminismDetector(self.mock_ctx, "best_effort")
-        
+
+        detector = _NonDeterminismDetector(self.mock_ctx, 'best_effort')
+
         with detector:
             # Should set up full tracing in debug mode
             current_trace = sys.gettrace()
             assert current_trace is not original_trace
             assert current_trace is not detector._noop_trace
-        
+
         # Should restore original trace
         assert sys.gettrace() is original_trace
 
     def test_sandbox_detector_exit_branch_coverage(self):
         """Test detector __exit__ method branch (line 74)."""
-        detector = _NonDeterminismDetector(self.mock_ctx, "off")
-        
+        detector = _NonDeterminismDetector(self.mock_ctx, 'off')
+
         # In off mode, __exit__ should not restore trace function
         import sys
+
         original_trace = sys.gettrace()
-        
+
         with detector:
             pass  # off mode doesn't change trace
-        
+
         # Should still be the same
         assert sys.gettrace() is original_trace
 
     def test_sandbox_context_no_current_utc_datetime(self):
         """Test sandbox with context missing current_utc_datetime (lines 358-364)."""
+
         # Create a minimal context object without current_utc_datetime
         class MinimalCtx:
             def __init__(self):
                 self._detection_disabled = False
-                self.instance_id = "test"
+                self.instance_id = 'test'
                 self._base_ctx = None
-            
+
             def now(self):
-                raise Exception("now() failed")
-        
+                raise Exception('now() failed')
+
         ctx = MinimalCtx()
-        
-        with sandbox_scope(ctx, "best_effort"):
+
+        with sandbox_scope(ctx, 'best_effort'):
             # Should use epoch fallback (line 364)
             val = random.random()
             assert isinstance(val, float)
@@ -1054,7 +1075,7 @@ class TestGatherMixedOptimization:
 
         # Create async context and enable sandbox
         base_ctx = Mock()
-        base_ctx.instance_id = "mix-test"
+        base_ctx.instance_id = 'mix-test'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
 
         async_ctx = AsyncWorkflowContext(base_ctx)
@@ -1072,24 +1093,26 @@ class TestGatherMixedOptimization:
             def __init__(self, items):
                 recorded_items.append(list(items))
                 self._items = list(items)
+
             def __await__(self):
                 async def _coro():
                     # Return results per-item deterministically
-                    return [f"W{i}" for i, _ in enumerate(self._items)]
+                    return [f'W{i}' for i, _ in enumerate(self._items)]
+
                 return _coro().__await__()
 
-        monkeypatch.setattr("durabletask.aio.awaitables.WhenAllAwaitable", FakeWhenAll)
+        monkeypatch.setattr('durabletask.aio.awaitables.WhenAllAwaitable', FakeWhenAll)
 
         # Native coroutines
         async def native(i: int):
             await asyncio.sleep(0)
-            return f"N{i}"
+            return f'N{i}'
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             out = await asyncio.gather(DummyWF(), native(0), DummyWF(), native(1))
 
         # Order preserved and batched results merged back correctly
-        assert out == ["W0", "N0", "W1", "N1"]
+        assert out == ['W0', 'N0', 'W1', 'N1']
         # Ensure WhenAll got only workflow awaitables (2 items)
         assert recorded_items and len(recorded_items[0]) == 2
 
@@ -1099,7 +1122,7 @@ class TestGatherMixedOptimization:
         from durabletask.aio.awaitables import AwaitableBase as _AwaitableBase
 
         base_ctx = Mock()
-        base_ctx.instance_id = "mix-exc"
+        base_ctx.instance_id = 'mix-exc'
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
 
@@ -1111,41 +1134,49 @@ class TestGatherMixedOptimization:
         class FakeWhenAll:
             def __init__(self, items):
                 self._items = list(items)
+
             def __await__(self):
                 async def _coro():
                     # Return placeholders for each workflow item
-                    return ["W_OK" for _ in self._items]
+                    return ['W_OK' for _ in self._items]
+
                 return _coro().__await__()
 
-        monkeypatch.setattr("durabletask.aio.awaitables.WhenAllAwaitable", FakeWhenAll)
+        monkeypatch.setattr('durabletask.aio.awaitables.WhenAllAwaitable', FakeWhenAll)
 
         async def native_ok():
-            return "N_OK"
+            return 'N_OK'
+
         async def native_fail():
-            raise RuntimeError("boom")
+            raise RuntimeError('boom')
 
-        with sandbox_scope(async_ctx, "best_effort"):
-            res = await asyncio.gather(DummyWF(), native_fail(), native_ok(), return_exceptions=True)
+        with sandbox_scope(async_ctx, 'best_effort'):
+            res = await asyncio.gather(
+                DummyWF(), native_fail(), native_ok(), return_exceptions=True
+            )
 
-        assert res[0] == "W_OK"
+        assert res[0] == 'W_OK'
         assert isinstance(res[1], RuntimeError)
-        assert res[2] == "N_OK"
+        assert res[2] == 'N_OK'
 
     def test_sandbox_scope_asyncio_gather_patching(self):
         """Test that asyncio.gather is properly patched."""
+
         async def test_task():
-            return "test"
+            return 'test'
+
         # Capture original gather before entering sandbox
         original_gather = asyncio.gather
         from durabletask.aio import AsyncWorkflowContext
+
         mock_base_ctx = Mock()
-        mock_base_ctx.instance_id = "gather-patch"
+        mock_base_ctx.instance_id = 'gather-patch'
         mock_base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(mock_base_ctx)
-        with sandbox_scope(async_ctx, "best_effort"):
+        with sandbox_scope(async_ctx, 'best_effort'):
             # Should patch gather
             assert asyncio.gather is not original_gather
-            
+
             # Test empty gather
             empty_gather = asyncio.gather()
             assert hasattr(empty_gather, '__await__')
@@ -1160,19 +1191,13 @@ class TestGatherMixedOptimization:
         mock_task = Mock(spec=dt_task.Task)
         mock_base_ctx = Mock()
         mock_base_ctx.call_activity.return_value = mock_task
-        mock_base_ctx.instance_id = "detect-wf"
+        mock_base_ctx.instance_id = 'detect-wf'
         mock_base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(mock_base_ctx)
-        
-        activity_awaitable = ActivityAwaitable(
-            mock_base_ctx,
-            lambda: "test", 
-            input="test"
-        )
-        
-        with sandbox_scope(async_ctx, "best_effort"):
+
+        activity_awaitable = ActivityAwaitable(mock_base_ctx, lambda: 'test', input='test')
+
+        with sandbox_scope(async_ctx, 'best_effort'):
             # Should recognize workflow awaitables
             gather_result = asyncio.gather(activity_awaitable)
             assert hasattr(gather_result, '__await__')
-
-

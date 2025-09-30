@@ -12,9 +12,9 @@ from typing import Any, Callable, Generator, Generic, Optional, TypeVar, Union
 import durabletask.internal.helpers as pbh
 import durabletask.internal.orchestrator_service_pb2 as pb
 
-T = TypeVar("T")
-TInput = TypeVar("TInput")
-TOutput = TypeVar("TOutput")
+T = TypeVar('T')
+TInput = TypeVar('TInput')
+TOutput = TypeVar('TOutput')
 
 
 class OrchestrationContext(ABC):
@@ -130,7 +130,7 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def create_timer(self, fire_at: Union[datetime, timedelta]) -> "Task[Any]":
+    def create_timer(self, fire_at: Union[datetime, timedelta]) -> 'Task[Any]':
         """Create a Timer Task to fire after at the specified deadline.
 
         Parameters
@@ -146,10 +146,14 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def call_activity(self, activity: Union[Activity[TInput, TOutput], str], *,
-                      input: Optional[TInput] = None,
-                      retry_policy: Optional[RetryPolicy] = None,
-                      app_id: Optional[str] = None) -> Task[TOutput]:
+    def call_activity(
+        self,
+        activity: Union[Activity[TInput, TOutput], str],
+        *,
+        input: Optional[TInput] = None,
+        retry_policy: Optional[RetryPolicy] = None,
+        app_id: Optional[str] = None,
+    ) -> Task[TOutput]:
         """Schedule an activity for execution.
 
         Parameters
@@ -171,11 +175,15 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def call_sub_orchestrator(self, orchestrator: Orchestrator[TInput, TOutput], *,
-                              input: Optional[TInput] = None,
-                              instance_id: Optional[str] = None,
-                              retry_policy: Optional[RetryPolicy] = None,
-                              app_id: Optional[str] = None) -> Task[TOutput]:
+    def call_sub_orchestrator(
+        self,
+        orchestrator: Orchestrator[TInput, TOutput],
+        *,
+        input: Optional[TInput] = None,
+        instance_id: Optional[str] = None,
+        retry_policy: Optional[RetryPolicy] = None,
+        app_id: Optional[str] = None,
+    ) -> Task[TOutput]:
         """Schedule sub-orchestrator function for execution.
 
         Parameters
@@ -202,7 +210,7 @@ class OrchestrationContext(ABC):
     # TOOD: Add a timeout parameter, which allows the task to be canceled if the event is
     # not received within the specified timeout. This requires support for task cancellation.
     @abstractmethod
-    def wait_for_external_event(self, name: str) -> "Task[Any]":
+    def wait_for_external_event(self, name: str) -> 'Task[Any]':
         """Wait asynchronously for an event to be raised with the name `name`.
 
         Parameters
@@ -289,7 +297,7 @@ class Task(ABC, Generic[T]):
 
     _result: T
     _exception: Optional[TaskFailedError]
-    _parent: Optional["CompositeTask"]
+    _parent: Optional['CompositeTask']
 
     def __init__(self) -> None:
         super().__init__()
@@ -310,7 +318,7 @@ class Task(ABC, Generic[T]):
     def get_result(self) -> T:
         """Returns the result of the task."""
         if not self._is_complete:
-            raise ValueError("The task has not completed.")
+            raise ValueError('The task has not completed.')
         elif self._exception is not None:
             raise self._exception
         return self._result
@@ -318,16 +326,16 @@ class Task(ABC, Generic[T]):
     def get_exception(self) -> TaskFailedError:
         """Returns the exception that caused the task to fail."""
         if self._exception is None:
-            raise ValueError("The task has not failed.")
+            raise ValueError('The task has not failed.')
         return self._exception
 
 
 class CompositeTask(Task[Any]):
     """A task that is composed of other tasks."""
 
-    _tasks: list["Task[Any]"]
+    _tasks: list['Task[Any]']
 
-    def __init__(self, tasks: list["Task[Any]"]):
+    def __init__(self, tasks: list['Task[Any]']):
         super().__init__()
         self._tasks = tasks
         self._completed_tasks = 0
@@ -337,11 +345,11 @@ class CompositeTask(Task[Any]):
             if task.is_complete:
                 self.on_child_completed(task)
 
-    def get_tasks(self) -> list["Task[Any]"]:
+    def get_tasks(self) -> list['Task[Any]']:
         return self._tasks
 
     @abstractmethod
-    def on_child_completed(self, task: "Task[Any]") -> None:
+    def on_child_completed(self, task: 'Task[Any]') -> None:
         pass
 
 
@@ -358,9 +366,9 @@ class WhenAllTask(CompositeTask, Generic[T]):
         """Returns the number of tasks that have not yet completed."""
         return len(self._tasks) - self._completed_tasks
 
-    def on_child_completed(self, task: "Task[T]") -> None:
+    def on_child_completed(self, task: 'Task[T]') -> None:
         if self.is_complete:
-            raise ValueError("The task has already completed.")
+            raise ValueError('The task has already completed.')
         self._completed_tasks += 1
         if task.is_failed and self._exception is None:
             self._exception = task.get_exception()
@@ -369,6 +377,7 @@ class WhenAllTask(CompositeTask, Generic[T]):
             # The order of the result MUST match the order of the tasks provided to the constructor.
             from typing import List as _List
             from typing import cast
+
             self._result = cast(_List[T], [task.get_result() for task in self._tasks])
             self._is_complete = True
 
@@ -379,11 +388,11 @@ class WhenAllTask(CompositeTask, Generic[T]):
 class CompletableTask(Task[T]):
     def __init__(self) -> None:
         super().__init__()
-        self._retryable_parent: Optional["RetryableTask[Any]"] = None
+        self._retryable_parent: Optional['RetryableTask[Any]'] = None
 
     def complete(self, result: T) -> None:
         if self._is_complete:
-            raise ValueError("The task has already completed.")
+            raise ValueError('The task has already completed.')
         self._result = result
         self._is_complete = True
         if self._parent is not None:
@@ -391,7 +400,7 @@ class CompletableTask(Task[T]):
 
     def fail(self, message: str, details: pb.TaskFailureDetails) -> None:
         if self._is_complete:
-            raise ValueError("The task has already completed.")
+            raise ValueError('The task has already completed.')
         self._exception = TaskFailedError(message, details)
         self._is_complete = True
         if self._parent is not None:
@@ -453,17 +462,17 @@ class TimerTask(CompletableTask[T]):
     def __init__(self) -> None:
         super().__init__()
 
-    def set_retryable_parent(self, retryable_task: "RetryableTask[Any]") -> None:
+    def set_retryable_parent(self, retryable_task: 'RetryableTask[Any]') -> None:
         self._retryable_parent = retryable_task
 
 
 class WhenAnyTask(CompositeTask, Generic[T]):
     """A task that completes when any of its child tasks complete."""
 
-    def __init__(self, tasks: list["Task[Any]"]):
+    def __init__(self, tasks: list['Task[Any]']):
         super().__init__(tasks)
 
-    def on_child_completed(self, task: "Task[Any]") -> None:
+    def on_child_completed(self, task: 'Task[Any]') -> None:
         # The first task to complete is the result of the WhenAnyTask.
         if not self.is_complete:
             self._is_complete = True
@@ -475,7 +484,7 @@ def when_all(tasks: list[Task[Any]]) -> WhenAllTask:
     return WhenAllTask(tasks)
 
 
-def when_any(tasks: list["Task[Any]"]) -> WhenAnyTask:
+def when_any(tasks: list['Task[Any]']) -> WhenAnyTask:
     """Returns a task that completes when any of the provided tasks complete or fail."""
     return WhenAnyTask(tasks)
 
@@ -583,15 +592,15 @@ class RetryPolicy:
         """
         # validate inputs
         if first_retry_interval < timedelta(seconds=0):
-            raise ValueError("first_retry_interval must be >= 0")
+            raise ValueError('first_retry_interval must be >= 0')
         if max_number_of_attempts < 1:
-            raise ValueError("max_number_of_attempts must be >= 1")
+            raise ValueError('max_number_of_attempts must be >= 1')
         if backoff_coefficient is not None and backoff_coefficient < 1:
-            raise ValueError("backoff_coefficient must be >= 1")
+            raise ValueError('backoff_coefficient must be >= 1')
         if max_retry_interval is not None and max_retry_interval < timedelta(seconds=0):
-            raise ValueError("max_retry_interval must be >= 0")
+            raise ValueError('max_retry_interval must be >= 0')
         if retry_timeout is not None and retry_timeout < timedelta(seconds=0):
-            raise ValueError("retry_timeout must be >= 0")
+            raise ValueError('retry_timeout must be >= 0')
 
         self._first_retry_interval = first_retry_interval
         self._max_number_of_attempts = max_number_of_attempts
@@ -648,9 +657,9 @@ class RetryPolicy:
 def get_name(fn: Callable[..., Any]) -> str:
     """Returns the name of the provided function."""
     name = fn.__name__
-    if name == "<lambda>":
+    if name == '<lambda>':
         raise ValueError(
-            "Cannot infer a name from a lambda function. Please provide a name explicitly."
+            'Cannot infer a name from a lambda function. Please provide a name explicitly.'
         )
 
     return name
