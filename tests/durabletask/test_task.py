@@ -1,3 +1,6 @@
+# Copyright (c) The Dapr Authors.
+# Licensed under the MIT License.
+
 """Unit tests for durabletask.task primitives."""
 
 from durabletask import task
@@ -9,6 +12,7 @@ def test_when_all_empty_returns_successfully():
 
     assert when_all_task.is_complete
     assert when_all_task.get_result() == []
+
 
 def test_when_any_empty_returns_successfully():
     """task.when_any([]) should complete immediately and return an empty list."""
@@ -64,4 +68,3 @@ def test_when_any_happy_path_returns_winner_task_and_completes_on_first():
     a.complete("A")
 
     assert any_task.get_result() is b
-

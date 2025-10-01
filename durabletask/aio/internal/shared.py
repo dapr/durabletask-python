@@ -1,3 +1,6 @@
+# Copyright (c) The Dapr Authors.
+# Licensed under the MIT License.
+
 from typing import Optional, Sequence, Union
 
 import grpc

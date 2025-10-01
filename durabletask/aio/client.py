@@ -1,3 +1,6 @@
+# Copyright (c) The Dapr Authors.
+# Licensed under the MIT License.
+
 import logging
 import uuid
 from datetime import datetime
@@ -46,6 +49,13 @@ class AsyncTaskHubGrpcClient:
 
     async def aclose(self):
         await self._channel.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.aclose()
+        return False
 
     async def schedule_new_orchestration(self, orchestrator: Union[task.Orchestrator[TInput, TOutput], str], *,
                                          input: Optional[TInput] = None,

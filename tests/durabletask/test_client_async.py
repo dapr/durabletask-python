@@ -1,3 +1,6 @@
+# Copyright (c) The Dapr Authors.
+# Licensed under the MIT License.
+
 from unittest.mock import ANY, patch
 
 from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorImpl

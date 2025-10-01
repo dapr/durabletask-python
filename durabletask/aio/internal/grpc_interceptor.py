@@ -1,3 +1,6 @@
+# Copyright (c) The Dapr Authors.
+# Licensed under the MIT License.
+
 from collections import namedtuple
 
 from grpc import aio as grpc_aio
