@@ -21,6 +21,7 @@ def test_get_grpc_channel_secure():
         get_grpc_channel(HOST_ADDRESS, True, interceptors=INTERCEPTORS)
         mock_channel.assert_called_once_with(HOST_ADDRESS, mock_credentials.return_value)
 
+
 def test_get_grpc_channel_default_host_address():
     with patch('grpc.insecure_channel') as mock_channel:
         get_grpc_channel(None, False, interceptors=INTERCEPTORS)
