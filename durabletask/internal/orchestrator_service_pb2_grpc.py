@@ -6,7 +6,7 @@ import warnings
 from durabletask.internal import orchestrator_service_pb2 as durabletask_dot_internal_dot_orchestrator__service__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
-GRPC_GENERATED_VERSION = '1.74.0'
+GRPC_GENERATED_VERSION = '1.75.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
