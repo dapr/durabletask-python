@@ -1,7 +1,0 @@
-[flake8]
-ignore = E203,E501,W503,E701,E704,F821,C901
-extend-exclude = .tox,venv,.venv,build,**/.venv,**/venv,*pb2_grpc.py,*pb2.py
-per-file-ignores=
-    examples/**:F541 setup.py:E121
-    tests/**:F541,E712
-max-line-length = 100

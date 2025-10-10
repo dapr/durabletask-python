@@ -137,12 +137,14 @@ class TaskHubGrpcClient:
     ) -> str:
         name = orchestrator if isinstance(orchestrator, str) else task.get_name(orchestrator)
 
+        input_pb = (
+            wrappers_pb2.StringValue(value=shared.to_json(input)) if input is not None else None
+        )
+
         req = pb.CreateInstanceRequest(
             name=name,
             instanceId=instance_id if instance_id else uuid.uuid4().hex,
-            input=wrappers_pb2.StringValue(value=shared.to_json(input))
-            if input is not None
-            else None,
+            input=input_pb,
             scheduledStartTimestamp=helpers.new_timestamp(start_at) if start_at else None,
             version=wrappers_pb2.StringValue(value=""),
             orchestrationIdReusePolicy=reuse_id_policy,

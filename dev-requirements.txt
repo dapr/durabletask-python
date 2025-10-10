@@ -1,8 +1,0 @@
-# TODO: move to pyproject optional-dependencies
-pytest-asyncio>=0.23
-flake8
-tox>=4.0.0
-pytest
-pytest-cov
-grpcio-tools==1.75.1
-protobuf>=6.31.1

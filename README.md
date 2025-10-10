@@ -162,7 +162,9 @@ The following is more information about how to develop this project. Note that d
 ### Generating protobufs
 
 ```sh
-pip3 install -r dev-requirements.txt
+# install dev dependencies for generating protobufs and running tests
+pip3 install '.[dev]'
+
 make gen-proto
 ```
 
@@ -170,25 +172,38 @@ This will download the `orchestrator_service.proto` from the `microsoft/durablet
 
 ### Running unit tests
 
-Unit tests can be run using the following command from the project root. Unit tests _don't_ require a sidecar process to be running.
+Unit tests can be run using the following command from the project root. 
+Unit tests _don't_ require a sidecar process to be running.
+
+To run on a specific python version (eg: 3.11), run the following command from the project root:
 
 ```sh
-make test-unit
+tox -e py311
 ```
 
 ### Running E2E tests
 
-The E2E (end-to-end) tests require a sidecar process to be running. You can use the Dapr sidecar for this or run a Durable Task test sidecar using the following command:
+The E2E (end-to-end) tests require a sidecar process to be running. 
+
+For non-multi app activities test you can use the Durable Task test sidecar using the following command:
 
 ```sh
 go install github.com/dapr/durabletask-go@main
 durabletask-go --port 4001
 ```
 
-To run the E2E tests, run the following command from the project root:
+Certain aspects like multi-app activities require the full dapr runtime to be running.
+
+```shell
+dapr init || true
+
+dapr run --app-id test-app --dapr-grpc-port  4001 --components-path ./examples/components/
+```
+
+To run the E2E tests on a specific python version (eg: 3.11), run the following command from the project root:
 
 ```sh
-make test-e2e
+tox -e py311-e2e
 ```
 
 ## Contributing
