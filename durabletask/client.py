@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import json as _json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -56,6 +57,15 @@ class OrchestrationState:
                 self.failure_details,
             )
 
+    def to_json(self) -> Any:
+        """Parse serialized_output as JSON and return the resulting object.
+
+        Returns None if there is no output.
+        """
+        if self.serialized_output is None:
+            return None
+        return _json.loads(self.serialized_output)
+
 
 class OrchestrationFailedError(Exception):
     def __init__(self, message: str, failure_details: task.FailureDetails):
@@ -108,6 +118,7 @@ class TaskHubGrpcClient:
         log_formatter: Optional[logging.Formatter] = None,
         secure_channel: bool = False,
         interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
+        options: Optional[Sequence[tuple[str, Any]]] = None,
     ):
         # If the caller provided metadata, we need to create a new interceptor for it and
         # add it to the list of interceptors.
@@ -121,10 +132,32 @@ class TaskHubGrpcClient:
             interceptors = None
 
         channel = shared.get_grpc_channel(
-            host_address=host_address, secure_channel=secure_channel, interceptors=interceptors
+            host_address=host_address,
+            secure_channel=secure_channel,
+            interceptors=interceptors,
+            options=options,
         )
+        self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
         self._logger = shared.get_logger("client", log_handler, log_formatter)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.close()
+        finally:
+            return False
+
+    def close(self) -> None:
+        """Close the underlying gRPC channel."""
+        try:
+            # grpc.Channel.close() is idempotent
+            self._channel.close()
+        except Exception:
+            # Best-effort cleanup
+            pass
 
     def schedule_new_orchestration(
         self,
@@ -184,10 +217,59 @@ class TaskHubGrpcClient:
     ) -> Optional[OrchestrationState]:
         req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
-            grpc_timeout = None if timeout == 0 else timeout
-            self._logger.info(
-                f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to complete."
-            )
+            # gRPC timeout mapping (pytest unit tests may pass None explicitly)
+            grpc_timeout = None if (timeout is None or timeout == 0) else timeout
+
+            # If timeout is None or 0, skip pre-checks/polling and call server-side wait directly
+            if timeout is None or timeout == 0:
+                self._logger.info(
+                    f"Waiting {'indefinitely' if not timeout else f'up to {timeout}s'} for instance '{instance_id}' to complete."
+                )
+                res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
+                    req, timeout=grpc_timeout
+                )
+                state = new_orchestration_state(req.instanceId, res)
+                return state
+
+            # For positive timeout, best-effort pre-check and short polling to avoid long server waits
+            try:
+                # First check if the orchestration is already completed
+                current_state = self.get_orchestration_state(
+                    instance_id, fetch_payloads=fetch_payloads
+                )
+                if current_state and current_state.runtime_status in [
+                    OrchestrationStatus.COMPLETED,
+                    OrchestrationStatus.FAILED,
+                    OrchestrationStatus.TERMINATED,
+                ]:
+                    return current_state
+
+                # Poll for completion with exponential backoff to handle eventual consistency
+                import time
+
+                poll_timeout = min(timeout, 10)
+                poll_start = time.time()
+                poll_interval = 0.1
+
+                while time.time() - poll_start < poll_timeout:
+                    current_state = self.get_orchestration_state(
+                        instance_id, fetch_payloads=fetch_payloads
+                    )
+
+                    if current_state and current_state.runtime_status in [
+                        OrchestrationStatus.COMPLETED,
+                        OrchestrationStatus.FAILED,
+                        OrchestrationStatus.TERMINATED,
+                    ]:
+                        return current_state
+
+                    time.sleep(poll_interval)
+                    poll_interval = min(poll_interval * 1.5, 1.0)  # Exponential backoff, max 1s
+            except Exception:
+                # Ignore pre-check/poll issues (e.g., mocked stubs in unit tests) and fall back
+                pass
+
+            self._logger.info(f"Waiting up to {timeout}s for instance '{instance_id}' to complete.")
             res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
                 req, timeout=grpc_timeout
             )
