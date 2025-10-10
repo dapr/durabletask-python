@@ -42,8 +42,8 @@ def get_default_host_address() -> str:
 
     # Host/port split overrides
     host = os.environ.get("DAPR_GRPC_HOST") or os.environ.get("DAPR_RUNTIME_HOST")
-    port = os.environ.get("DAPR_GRPC_PORT")
-    if host and port:
+    if host:
+        port = os.environ.get("DAPR_GRPC_PORT", "4001")
         return f"{host}:{port}"
 
     # Default to durabletask-go default port
