@@ -13,7 +13,7 @@ ClientInterceptor = Union[
     grpc.UnaryUnaryClientInterceptor,
     grpc.UnaryStreamClientInterceptor,
     grpc.StreamUnaryClientInterceptor,
-    grpc.StreamStreamClientInterceptor
+    grpc.StreamStreamClientInterceptor,
 ]
 
 # Field name used to indicate that an object was automatically serialized
@@ -25,13 +25,36 @@ INSECURE_PROTOCOLS = ["http://", "grpc://"]
 
 
 def get_default_host_address() -> str:
+    """Resolve the default Durable Task sidecar address.
+
+    Honors environment variables if present; otherwise defaults to localhost:4001.
+
+    Supported environment variables (checked in order):
+    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
+    - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
+    """
+    import os
+
+    # Full endpoint overrides
+    endpoint = os.environ.get("DAPR_GRPC_ENDPOINT")
+    if endpoint:
+        return endpoint
+
+    # Host/port split overrides
+    host = os.environ.get("DAPR_GRPC_HOST") or os.environ.get("DAPR_RUNTIME_HOST")
+    port = os.environ.get("DAPR_GRPC_PORT")
+    if host and port:
+        return f"{host}:{port}"
+
+    # Default to durabletask-go default port
     return "localhost:4001"
 
 
 def get_grpc_channel(
-        host_address: Optional[str],
-        secure_channel: bool = False,
-        interceptors: Optional[Sequence[ClientInterceptor]] = None) -> grpc.Channel:
+    host_address: Optional[str],
+    secure_channel: bool = False,
+    interceptors: Optional[Sequence[ClientInterceptor]] = None,
+) -> grpc.Channel:
     if host_address is None:
         host_address = get_default_host_address()
 
@@ -39,14 +62,14 @@ def get_grpc_channel(
         if host_address.lower().startswith(protocol):
             secure_channel = True
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     for protocol in INSECURE_PROTOCOLS:
         if host_address.lower().startswith(protocol):
             secure_channel = False
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     # Create the base channel
@@ -62,9 +85,10 @@ def get_grpc_channel(
 
 
 def get_logger(
-        name_suffix: str,
-        log_handler: Optional[logging.Handler] = None,
-        log_formatter: Optional[logging.Formatter] = None) -> logging.Logger:
+    name_suffix: str,
+    log_handler: Optional[logging.Handler] = None,
+    log_formatter: Optional[logging.Formatter] = None,
+) -> logging.Logger:
     logger = logging.Logger(f"durabletask-{name_suffix}")
 
     # Add a default log handler if none is provided
@@ -77,7 +101,8 @@ def get_logger(
     if log_formatter is None:
         log_formatter = logging.Formatter(
             fmt="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-            datefmt='%Y-%m-%d %H:%M:%S')
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     log_handler.setFormatter(log_formatter)
     return logger
 

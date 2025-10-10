@@ -17,9 +17,9 @@ keywords = [
     "workflow"
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
 ]
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
@@ -48,3 +48,27 @@ pythonpath = ["."]
 markers = [
     "e2e: mark a test as an end-to-end test that requires a running sidecar"
 ]
+
+[tool.ruff]
+target-version = "py39" # TODO: update to py310 when we drop support for py39
+line-length = 100
+fix = true
+extend-exclude = [".github", "durabletask/internal/orchestrator_service_*.*"]
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    # Undefined name {name}
+    "F821",
+]
+[tool.ruff.format]
+# follow upstream quote-style instead of python-sdk to reduce diff
+quote-style = "double"
+
