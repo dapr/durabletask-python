@@ -1705,6 +1705,104 @@ def test_activity_non_retryable_policy_name():
     assert complete_action.failureDetails.errorMessage.__contains__("Activity task #1 failed: boom")
 
 
+def test_activity_generic_exception_is_retryable():
+    """Verify that generic Exception is retryable by default (not treated as non-retryable)."""
+
+    def dummy_activity(ctx, _):
+        raise Exception("generic error")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+                backoff_coefficient=1,
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    # First attempt fails
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Should schedule a retry timer, not fail immediately
+    assert len(actions) == 1
+    assert actions[0].HasField("createTimer")
+    assert actions[0].id == 2
+
+    # Simulate the timer firing and activity being rescheduled
+    expected_fire_at = current_timestamp + timedelta(seconds=1)
+    old_events = old_events + new_events
+    current_timestamp = expected_fire_at
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_timer_fired_event(2, current_timestamp),
+    ]
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    assert len(actions) == 2  # timer + rescheduled task
+    assert actions[1].HasField("scheduleTask")
+    assert actions[1].id == 1
+
+    # Second attempt also fails
+    old_events = old_events + new_events
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Should schedule another retry timer
+    assert len(actions) == 3
+    assert actions[2].HasField("createTimer")
+    assert actions[2].id == 3
+
+    # Simulate the timer firing and activity being rescheduled
+    expected_fire_at = current_timestamp + timedelta(seconds=1)
+    old_events = old_events + new_events
+    current_timestamp = expected_fire_at
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_timer_fired_event(3, current_timestamp),
+    ]
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    assert len(actions) == 3  # timer + rescheduled task
+    assert actions[1].HasField("scheduleTask")
+    assert actions[1].id == 1
+
+    # Third attempt fails - should exhaust retries
+    old_events = old_events + new_events
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Now should fail - no more retries
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__(
+        "Activity task #1 failed: generic error"
+    )
+
+
 def test_sub_orchestration_non_retryable_default_exception():
     """If sub-orchestrator fails with NonRetryableError, do not retry and fail immediately."""
 

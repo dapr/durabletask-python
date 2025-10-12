@@ -795,3 +795,231 @@ def skip_if_no_runtime():
     endpoint = os.getenv("DURABLETASK_GRPC_ENDPOINT", "localhost:4001")
     if not is_runtime_available(endpoint):
         pytest.skip(f"DurableTask runtime not available at {endpoint}")
+
+
+def test_async_activity_retry_with_backoff():
+    """Test that activities are retried with proper backoff and max attempts."""
+    skip_if_no_runtime()
+
+    from datetime import timedelta
+
+    from durabletask import task
+
+    attempt_counter = 0
+
+    async def retry_orchestrator(ctx: AsyncWorkflowContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=3,
+            backoff_coefficient=2,
+            max_retry_interval=timedelta(seconds=10),
+            retry_timeout=timedelta(seconds=30),
+        )
+        result = await ctx.call_activity(failing_activity, retry_policy=retry_policy)
+        return result
+
+    def failing_activity(ctx, _):
+        nonlocal attempt_counter
+        attempt_counter += 1
+        raise RuntimeError(f"Attempt {attempt_counter} failed")
+
+    with TaskHubGrpcWorker() as worker:
+        worker.add_orchestrator(retry_orchestrator)
+        worker.add_activity(failing_activity)
+        worker.start()
+        worker.wait_for_ready(timeout=10)
+
+        client = TaskHubGrpcClient()
+        instance_id = client.schedule_new_orchestration(retry_orchestrator)
+        state = client.wait_for_orchestration_completion(instance_id, timeout=30)
+
+        assert state is not None
+        assert state.runtime_status.name == "FAILED"
+        assert state.failure_details is not None
+        assert "Attempt 3 failed" in state.failure_details.message
+        assert attempt_counter == 3
+
+
+def test_async_sub_orchestrator_retry():
+    """Test that sub-orchestrators are retried on failure."""
+    skip_if_no_runtime()
+
+    from datetime import timedelta
+
+    from durabletask import task
+
+    child_attempt_counter = 0
+    activity_attempt_counter = 0
+
+    async def parent_orchestrator(ctx: AsyncWorkflowContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=3,
+            backoff_coefficient=1,
+        )
+        result = await ctx.call_sub_orchestrator(child_orchestrator, retry_policy=retry_policy)
+        return result
+
+    async def child_orchestrator(ctx: AsyncWorkflowContext, _):
+        nonlocal child_attempt_counter
+        if not ctx.is_replaying:
+            child_attempt_counter += 1
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=3,
+            backoff_coefficient=1,
+        )
+        result = await ctx.call_activity(failing_activity, retry_policy=retry_policy)
+        return result
+
+    def failing_activity(ctx, _):
+        nonlocal activity_attempt_counter
+        activity_attempt_counter += 1
+        raise RuntimeError("Kah-BOOOOM!!!")
+
+    with TaskHubGrpcWorker() as worker:
+        worker.add_orchestrator(parent_orchestrator)
+        worker.add_orchestrator(child_orchestrator)
+        worker.add_activity(failing_activity)
+        worker.start()
+        worker.wait_for_ready(timeout=10)
+
+        client = TaskHubGrpcClient()
+        instance_id = client.schedule_new_orchestration(parent_orchestrator)
+        state = client.wait_for_orchestration_completion(instance_id, timeout=40)
+
+        assert state is not None
+        assert state.runtime_status.name == "FAILED"
+        assert state.failure_details is not None
+        # Each child orchestrator attempt retries the activity 3 times
+        # 3 child attempts × 3 activity attempts = 9 total
+        assert activity_attempt_counter == 9
+        assert child_attempt_counter == 3
+
+
+def test_async_retry_timeout():
+    """Test that retry timeout limits the number of attempts."""
+    skip_if_no_runtime()
+
+    from datetime import timedelta
+
+    from durabletask import task
+
+    attempt_counter = 0
+
+    async def timeout_orchestrator(ctx: AsyncWorkflowContext, _):
+        # Max 5 attempts, but timeout at 14 seconds
+        # Attempts: 1s + 2s + 4s + 8s = 15s, so only 4 attempts should happen
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=5,
+            backoff_coefficient=2,
+            max_retry_interval=timedelta(seconds=10),
+            retry_timeout=timedelta(seconds=14),
+        )
+        result = await ctx.call_activity(failing_activity, retry_policy=retry_policy)
+        return result
+
+    def failing_activity(ctx, _):
+        nonlocal attempt_counter
+        attempt_counter += 1
+        raise RuntimeError(f"Attempt {attempt_counter} failed")
+
+    with TaskHubGrpcWorker() as worker:
+        worker.add_orchestrator(timeout_orchestrator)
+        worker.add_activity(failing_activity)
+        worker.start()
+        worker.wait_for_ready(timeout=10)
+
+        client = TaskHubGrpcClient()
+        instance_id = client.schedule_new_orchestration(timeout_orchestrator)
+        state = client.wait_for_orchestration_completion(instance_id, timeout=40)
+
+        assert state is not None
+        assert state.runtime_status.name == "FAILED"
+        # Should only attempt 4 times due to timeout (1s + 2s + 4s + 8s would exceed 14s)
+        assert attempt_counter == 4
+
+
+def test_async_non_retryable_error():
+    """Test that NonRetryableError prevents retries."""
+    skip_if_no_runtime()
+
+    from datetime import timedelta
+
+    from durabletask import task
+
+    attempt_counter = 0
+
+    async def non_retryable_orchestrator(ctx: AsyncWorkflowContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=5,
+            backoff_coefficient=1,
+        )
+        result = await ctx.call_activity(non_retryable_activity, retry_policy=retry_policy)
+        return result
+
+    def non_retryable_activity(ctx, _):
+        nonlocal attempt_counter
+        attempt_counter += 1
+        raise task.NonRetryableError("This should not be retried")
+
+    with TaskHubGrpcWorker() as worker:
+        worker.add_orchestrator(non_retryable_orchestrator)
+        worker.add_activity(non_retryable_activity)
+        worker.start()
+        worker.wait_for_ready(timeout=10)
+
+        client = TaskHubGrpcClient()
+        instance_id = client.schedule_new_orchestration(non_retryable_orchestrator)
+        state = client.wait_for_orchestration_completion(instance_id, timeout=20)
+
+        assert state is not None
+        assert state.runtime_status.name == "FAILED"
+        assert state.failure_details is not None
+        assert "NonRetryableError" in state.failure_details.error_type
+        # Should only attempt once since it's non-retryable
+        assert attempt_counter == 1
+
+
+def test_async_successful_retry():
+    """Test that an activity succeeds after retries."""
+    skip_if_no_runtime()
+
+    from datetime import timedelta
+
+    from durabletask import task
+
+    attempt_counter = 0
+
+    async def successful_retry_orchestrator(ctx: AsyncWorkflowContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(seconds=1),
+            max_number_of_attempts=5,
+            backoff_coefficient=1,
+        )
+        result = await ctx.call_activity(eventually_succeeds_activity, retry_policy=retry_policy)
+        return result
+
+    def eventually_succeeds_activity(ctx, _):
+        nonlocal attempt_counter
+        attempt_counter += 1
+        if attempt_counter < 3:
+            raise RuntimeError(f"Attempt {attempt_counter} failed")
+        return f"Success on attempt {attempt_counter}"
+
+    with TaskHubGrpcWorker() as worker:
+        worker.add_orchestrator(successful_retry_orchestrator)
+        worker.add_activity(eventually_succeeds_activity)
+        worker.start()
+        worker.wait_for_ready(timeout=10)
+
+        client = TaskHubGrpcClient()
+        instance_id = client.schedule_new_orchestration(successful_retry_orchestrator)
+        state = client.wait_for_orchestration_completion(instance_id, timeout=30)
+
+        assert state is not None
+        assert state.runtime_status.name == "COMPLETED"
+        assert state.serialized_output == '"Success on attempt 3"'
+        assert attempt_counter == 3
