@@ -12,9 +12,10 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 from durabletask import task, worker
 
 logging.basicConfig(
-    format='%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.DEBUG)
+    format="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.DEBUG,
+)
 TEST_LOGGER = logging.getLogger("tests")
 
 TEST_INSTANCE_ID = "abc123"
@@ -24,7 +25,12 @@ def test_orchestrator_inputs():
     """Validates orchestrator function input population"""
 
     def orchestrator(ctx: task.OrchestrationContext, my_input: int):
-        return my_input, ctx.instance_id, str(ctx.current_utc_datetime), ctx.is_replaying
+        return (
+            my_input,
+            ctx.instance_id,
+            str(ctx.current_utc_datetime),
+            ctx.is_replaying,
+        )
 
     test_input = 42
 
@@ -34,7 +40,9 @@ def test_orchestrator_inputs():
     start_time = datetime.now()
     new_events = [
         helpers.new_orchestrator_started_event(start_time),
-        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=json.dumps(test_input)),
+        helpers.new_execution_started_event(
+            name, TEST_INSTANCE_ID, encoded_input=json.dumps(test_input)
+        ),
     ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, [], new_events)
@@ -46,6 +54,89 @@ def test_orchestrator_inputs():
 
     expected_output = [test_input, TEST_INSTANCE_ID, str(start_time), False]
     assert complete_action.result.value == json.dumps(expected_output)
+
+
+def test_ctx_parent_instance_id_derived_from_child_id():
+    """Validate ctx.parent_instance_id is derived from deterministic child naming when parent info absent."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        return ctx.parent_instance_id
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+
+    child_instance_id = f"{TEST_INSTANCE_ID}:0001"
+    new_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_execution_started_event(child_name, child_instance_id, encoded_input=None),
+    ]
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(child_instance_id, [], new_events)
+    complete_action = get_and_validate_single_complete_orchestration_action(result.actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_COMPLETED
+    assert complete_action.result.value == json.dumps(TEST_INSTANCE_ID)
+
+
+def test_ctx_parent_instance_id_from_parentInstance_field():
+    """Validate ctx.parent_instance_id is populated from ExecutionStarted.parentInstance when provided."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        return ctx.parent_instance_id
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+
+    # Create ExecutionStarted with explicit parentInstance info
+    parent_id = "parent-xyz"
+    child_id = "child-no-colon"  # ensure fallback derivation does not apply
+    exec_started = pb.HistoryEvent(
+        eventId=-1,
+        timestamp=helpers.new_timestamp(datetime.utcnow()),
+        executionStarted=pb.ExecutionStartedEvent(
+            name=child_name,
+            input=helpers.get_string_value(None),
+            orchestrationInstance=pb.OrchestrationInstance(instanceId=child_id),
+            parentInstance=pb.ParentInstanceInfo(
+                orchestrationInstance=pb.OrchestrationInstance(instanceId=parent_id)
+            ),
+        ),
+    )
+
+    new_events = [helpers.new_orchestrator_started_event(), exec_started]
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(child_id, [], new_events)
+    complete_action = get_and_validate_single_complete_orchestration_action(result.actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_COMPLETED
+    assert complete_action.result.value == json.dumps(parent_id)
+
+
+def test_activity_context_attempt_defaults_none():
+    """Validate ActivityContext.attempt defaults to None (engine does not expose attempts yet)."""
+
+    def probe_attempt(ctx: task.ActivityContext, _):
+        return ctx.attempt
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        return (yield ctx.call_activity(probe_attempt))
+
+    registry = worker._Registry()
+    orch_name = registry.add_orchestrator(orchestrator)
+    act_name = registry.add_activity(probe_attempt)
+
+    old_events = [
+        helpers.new_orchestrator_started_event(),
+        helpers.new_execution_started_event(orch_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, act_name),
+    ]
+    # Engine encodes None as empty StringValue; reflect that in expected history event and assertion
+    new_events = [helpers.new_task_completed_event(1, encoded_output=None)]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    complete_action = get_and_validate_single_complete_orchestration_action(result.actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_COMPLETED
+    # Result StringValue is expected to be empty when value is None
+    assert complete_action.result is None or complete_action.result.value == ""
 
 
 def test_complete_orchestration_actions():
@@ -99,7 +190,8 @@ def test_create_timer_actions():
 
     new_events = [
         helpers.new_orchestrator_started_event(start_time),
-        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None)]
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, [], new_events)
     actions = result.actions
@@ -129,9 +221,9 @@ def test_timer_fired_completion():
     old_events = [
         helpers.new_orchestrator_started_event(start_time),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_timer_created_event(1, expected_fire_at)]
-    new_events = [
-        helpers.new_timer_fired_event(1, expected_fire_at)]
+        helpers.new_timer_created_event(1, expected_fire_at),
+    ]
+    new_events = [helpers.new_timer_fired_event(1, expected_fire_at)]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
@@ -145,6 +237,7 @@ def test_timer_fired_completion():
 
 def test_schedule_activity_actions():
     """Test the actions output for the call_activity orchestrator method"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -158,7 +251,8 @@ def test_schedule_activity_actions():
     encoded_input = json.dumps(42)
     new_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input)]
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, [], new_events)
     actions = result.actions
@@ -173,6 +267,7 @@ def test_schedule_activity_actions():
 
 def test_schedule_activity_actions_router_without_app_id():
     """Tests that scheduleTask action contains correct router fields when app_id is specified"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -198,13 +293,14 @@ def test_schedule_activity_actions_router_without_app_id():
     assert len(actions) == 1
     action = actions[0]
     assert action.router.sourceAppID == "source-app"
-    assert action.router.targetAppID == ''
+    assert action.router.targetAppID == ""
     assert action.scheduleTask.router.sourceAppID == "source-app"
-    assert action.scheduleTask.router.targetAppID == ''
+    assert action.scheduleTask.router.targetAppID == ""
 
 
 def test_schedule_activity_actions_router_with_app_id():
     """Tests that scheduleTask action contains correct router fields when app_id is specified"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -251,7 +347,8 @@ def test_activity_task_completion():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
 
     encoded_output = json.dumps("done!")
     new_events = [helpers.new_task_completed_event(1, encoded_output)]
@@ -267,6 +364,7 @@ def test_activity_task_completion():
 
 def test_activity_task_failed():
     """Tests the failure of an activity task"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -280,7 +378,8 @@ def test_activity_task_failed():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
 
     ex = Exception("Kah-BOOOOM!!!")
     new_events = [helpers.new_task_failed_event(1, ex)]
@@ -291,7 +390,9 @@ def test_activity_task_failed():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'TaskFailedError'  # TODO: Should this be the specific error?
+    assert (
+        complete_action.failureDetails.errorType == "TaskFailedError"
+    )  # TODO: Should this be the specific error?
     assert str(ex) in complete_action.failureDetails.errorMessage
 
     # Make sure the line of code where the exception was raised is included in the stack trace
@@ -313,8 +414,10 @@ def test_activity_retry_policies():
                 max_number_of_attempts=6,
                 backoff_coefficient=2,
                 max_retry_interval=timedelta(seconds=10),
-                retry_timeout=timedelta(seconds=50)),
-            input=orchestrator_input)
+                retry_timeout=timedelta(seconds=50),
+            ),
+            input=orchestrator_input,
+        )
         return result
 
     registry = worker._Registry()
@@ -325,12 +428,14 @@ def test_activity_retry_policies():
     old_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
     expected_fire_at = current_timestamp + timedelta(seconds=1)
 
     new_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -344,7 +449,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(2, current_timestamp)]
+        helpers.new_timer_fired_event(2, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -357,7 +463,8 @@ def test_activity_retry_policies():
     expected_fire_at = current_timestamp + timedelta(seconds=2)
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -371,7 +478,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(3, current_timestamp)]
+        helpers.new_timer_fired_event(3, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -384,7 +492,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -398,7 +507,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(4, current_timestamp)]
+        helpers.new_timer_fired_event(4, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -411,7 +521,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -425,7 +536,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(5, current_timestamp)]
+        helpers.new_timer_fired_event(5, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -439,7 +551,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -453,7 +566,8 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(6, current_timestamp)]
+        helpers.new_timer_fired_event(6, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -465,17 +579,21 @@ def test_activity_retry_policies():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
     assert len(actions) == 1
-    assert actions[0].completeOrchestration.failureDetails.errorMessage.__contains__("Activity task #1 failed: Kah-BOOOOM!!!")
+    assert actions[0].completeOrchestration.failureDetails.errorMessage.__contains__(
+        "Activity task #1 failed: Kah-BOOOOM!!!"
+    )
     assert actions[0].id == 7
 
 
 def test_nondeterminism_expected_timer():
     """Tests the non-determinism detection logic when call_timer is expected but some other method (call_activity) is called instead"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -490,7 +608,8 @@ def test_nondeterminism_expected_timer():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_timer_created_event(1, fire_at)]
+        helpers.new_timer_created_event(1, fire_at),
+    ]
     new_events = [helpers.new_timer_fired_event(timer_id=1, fire_at=fire_at)]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
@@ -499,7 +618,7 @@ def test_nondeterminism_expected_timer():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
     assert "create_timer" in complete_action.failureDetails.errorMessage  # expected method name
     assert "call_activity" in complete_action.failureDetails.errorMessage  # actual method name
@@ -507,6 +626,7 @@ def test_nondeterminism_expected_timer():
 
 def test_nondeterminism_expected_activity_call_no_task_id():
     """Tests the non-determinism detection logic when invoking activity functions"""
+
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield task.CompletableTask()  # dummy task
         return result
@@ -517,7 +637,8 @@ def test_nondeterminism_expected_activity_call_no_task_id():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, "bogus_activity")]
+        helpers.new_task_scheduled_event(1, "bogus_activity"),
+    ]
 
     new_events = [helpers.new_task_completed_event(1)]
 
@@ -527,13 +648,14 @@ def test_nondeterminism_expected_activity_call_no_task_id():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
     assert "call_activity" in complete_action.failureDetails.errorMessage  # expected method name
 
 
 def test_nondeterminism_expected_activity_call_wrong_task_type():
     """Tests the non-determinism detection when an activity exists in the history but a non-activity is in the code"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -547,7 +669,8 @@ def test_nondeterminism_expected_activity_call_wrong_task_type():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
 
     new_events = [helpers.new_task_completed_event(1)]
 
@@ -557,7 +680,7 @@ def test_nondeterminism_expected_activity_call_wrong_task_type():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
     assert "call_activity" in complete_action.failureDetails.errorMessage  # expected method name
     assert "create_timer" in complete_action.failureDetails.errorMessage  # unexpected method name
@@ -565,6 +688,7 @@ def test_nondeterminism_expected_activity_call_wrong_task_type():
 
 def test_nondeterminism_wrong_activity_name():
     """Tests the non-determinism detection when calling an activity with a name that differs from the name in the history"""
+
     def dummy_activity(ctx, _):
         pass
 
@@ -578,7 +702,8 @@ def test_nondeterminism_wrong_activity_name():
     old_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_task_scheduled_event(1, "original_activity")]
+        helpers.new_task_scheduled_event(1, "original_activity"),
+    ]
 
     new_events = [helpers.new_task_completed_event(1)]
 
@@ -588,15 +713,20 @@ def test_nondeterminism_wrong_activity_name():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
     assert "call_activity" in complete_action.failureDetails.errorMessage  # expected method name
-    assert "original_activity" in complete_action.failureDetails.errorMessage  # expected activity name
-    assert "dummy_activity" in complete_action.failureDetails.errorMessage  # unexpected activity name
+    assert (
+        "original_activity" in complete_action.failureDetails.errorMessage
+    )  # expected activity name
+    assert (
+        "dummy_activity" in complete_action.failureDetails.errorMessage
+    )  # unexpected activity name
 
 
 def test_sub_orchestration_task_completion():
     """Tests that a sub-orchestration task is completed when the sub-orchestration completes"""
+
     def suborchestrator(ctx: task.OrchestrationContext, _):
         pass
 
@@ -610,11 +740,15 @@ def test_sub_orchestration_task_completion():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_sub_orchestration_created_event(1, suborchestrator_name, "sub-orch-123", encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+        helpers.new_sub_orchestration_created_event(
+            1, suborchestrator_name, "sub-orch-123", encoded_input=None
+        ),
+    ]
 
-    new_events = [
-        helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
+    new_events = [helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
@@ -627,6 +761,7 @@ def test_sub_orchestration_task_completion():
 
 def test_create_sub_orchestration_actions_router_without_app_id():
     """Tests that createSubOrchestration action contains correct router fields when app_id is specified"""
+
     def suborchestrator(ctx: task.OrchestrationContext, _):
         pass
 
@@ -634,10 +769,12 @@ def test_create_sub_orchestration_actions_router_without_app_id():
         yield ctx.call_sub_orchestrator(suborchestrator, input=None)
 
     registry = worker._Registry()
-    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    _ = registry.add_orchestrator(suborchestrator)
     orchestrator_name = registry.add_orchestrator(orchestrator)
 
-    exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt = helpers.new_execution_started_event(
+        orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+    )
     exec_evt.router.sourceAppID = "source-app"
 
     new_events = [
@@ -652,13 +789,14 @@ def test_create_sub_orchestration_actions_router_without_app_id():
     assert len(actions) == 1
     action = actions[0]
     assert action.router.sourceAppID == "source-app"
-    assert action.router.targetAppID == ''
+    assert action.router.targetAppID == ""
     assert action.createSubOrchestration.router.sourceAppID == "source-app"
-    assert action.createSubOrchestration.router.targetAppID == ''
+    assert action.createSubOrchestration.router.targetAppID == ""
 
 
 def test_create_sub_orchestration_actions_router_with_app_id():
     """Tests that createSubOrchestration action contains correct router fields when app_id is specified"""
+
     def suborchestrator(ctx: task.OrchestrationContext, _):
         pass
 
@@ -666,10 +804,12 @@ def test_create_sub_orchestration_actions_router_with_app_id():
         yield ctx.call_sub_orchestrator(suborchestrator, input=None, app_id="target-app")
 
     registry = worker._Registry()
-    suborchestrator_name = registry.add_orchestrator(suborchestrator)
+    _ = registry.add_orchestrator(suborchestrator)
     orchestrator_name = registry.add_orchestrator(orchestrator)
 
-    exec_evt = helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
+    exec_evt = helpers.new_execution_started_event(
+        orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+    )
     exec_evt.router.sourceAppID = "source-app"
 
     new_events = [
@@ -691,6 +831,7 @@ def test_create_sub_orchestration_actions_router_with_app_id():
 
 def test_sub_orchestration_task_failed():
     """Tests that a sub-orchestration task is completed when the sub-orchestration fails"""
+
     def suborchestrator(ctx: task.OrchestrationContext, _):
         pass
 
@@ -704,8 +845,13 @@ def test_sub_orchestration_task_failed():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_sub_orchestration_created_event(1, suborchestrator_name, "sub-orch-123", encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+        helpers.new_sub_orchestration_created_event(
+            1, suborchestrator_name, "sub-orch-123", encoded_input=None
+        ),
+    ]
 
     ex = Exception("Kah-BOOOOM!!!")
     new_events = [helpers.new_sub_orchestration_failed_event(1, ex)]
@@ -716,7 +862,9 @@ def test_sub_orchestration_task_failed():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'TaskFailedError'  # TODO: Should this be the specific error?
+    assert (
+        complete_action.failureDetails.errorType == "TaskFailedError"
+    )  # TODO: Should this be the specific error?
     assert str(ex) in complete_action.failureDetails.errorMessage
 
     # Make sure the line of code where the exception was raised is included in the stack trace
@@ -726,6 +874,7 @@ def test_sub_orchestration_task_failed():
 
 def test_nondeterminism_expected_sub_orchestration_task_completion_no_task():
     """Tests the non-determinism detection when a sub-orchestration action is encounteed when it shouldn't be"""
+
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield task.CompletableTask()  # dummy task
         return result
@@ -735,11 +884,15 @@ def test_nondeterminism_expected_sub_orchestration_task_completion_no_task():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_sub_orchestration_created_event(1, "some_sub_orchestration", "sub-orch-123", encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+        helpers.new_sub_orchestration_created_event(
+            1, "some_sub_orchestration", "sub-orch-123", encoded_input=None
+        ),
+    ]
 
-    new_events = [
-        helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
+    new_events = [helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
@@ -747,17 +900,22 @@ def test_nondeterminism_expected_sub_orchestration_task_completion_no_task():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
-    assert "call_sub_orchestrator" in complete_action.failureDetails.errorMessage  # expected method name
+    assert (
+        "call_sub_orchestrator" in complete_action.failureDetails.errorMessage
+    )  # expected method name
 
 
 def test_nondeterminism_expected_sub_orchestration_task_completion_wrong_task_type():
     """Tests the non-determinism detection when a sub-orchestration action is encounteed when it shouldn't be.
     This variation tests the case where the expected task type is wrong (e.g. the code schedules a timer task
     but the history contains a sub-orchestration completed task)."""
+
     def orchestrator(ctx: task.OrchestrationContext, _):
-        result = yield ctx.create_timer(datetime.utcnow())  # created timer but history expects sub-orchestration
+        result = yield ctx.create_timer(
+            datetime.utcnow()
+        )  # created timer but history expects sub-orchestration
         return result
 
     registry = worker._Registry()
@@ -765,11 +923,15 @@ def test_nondeterminism_expected_sub_orchestration_task_completion_wrong_task_ty
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
-        helpers.new_sub_orchestration_created_event(1, "some_sub_orchestration", "sub-orch-123", encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+        helpers.new_sub_orchestration_created_event(
+            1, "some_sub_orchestration", "sub-orch-123", encoded_input=None
+        ),
+    ]
 
-    new_events = [
-        helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
+    new_events = [helpers.new_sub_orchestration_completed_event(1, encoded_output="42")]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
@@ -777,13 +939,16 @@ def test_nondeterminism_expected_sub_orchestration_task_completion_wrong_task_ty
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'NonDeterminismError'
+    assert complete_action.failureDetails.errorType == "NonDeterminismError"
     assert "1" in complete_action.failureDetails.errorMessage  # task ID
-    assert "call_sub_orchestrator" in complete_action.failureDetails.errorMessage  # expected method name
+    assert (
+        "call_sub_orchestrator" in complete_action.failureDetails.errorMessage
+    )  # expected method name
 
 
 def test_raise_event():
     """Tests that an orchestration can wait for and process an external event sent by a client"""
+
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield ctx.wait_for_external_event("my_event")
         return result
@@ -794,7 +959,8 @@ def test_raise_event():
     old_events = []
     new_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID)]
+        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID),
+    ]
 
     # Execute the orchestration until it is waiting for an external event. The result
     # should be an empty list of actions because the orchestration didn't schedule any work.
@@ -817,6 +983,7 @@ def test_raise_event():
 
 def test_raise_event_buffered():
     """Tests that an orchestration can receive an event that arrives earlier than expected"""
+
     def orchestrator(ctx: task.OrchestrationContext, _):
         yield ctx.create_timer(ctx.current_utc_datetime + timedelta(days=1))
         result = yield ctx.wait_for_external_event("my_event")
@@ -829,7 +996,8 @@ def test_raise_event_buffered():
     new_events = [
         helpers.new_orchestrator_started_event(),
         helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID),
-        helpers.new_event_raised_event("my_event", encoded_input="42")]
+        helpers.new_event_raised_event("my_event", encoded_input="42"),
+    ]
 
     # Execute the orchestration. It should be in a running state waiting for the timer to fire
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
@@ -863,10 +1031,12 @@ def test_suspend_resume():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID)]
+        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID),
+    ]
     new_events = [
         helpers.new_suspend_event(),
-        helpers.new_event_raised_event("my_event", encoded_input="42")]
+        helpers.new_event_raised_event("my_event", encoded_input="42"),
+    ]
 
     # Execute the orchestration. It should remain in a running state because it was suspended prior
     # to processing the event raised event.
@@ -898,10 +1068,12 @@ def test_terminate():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID)]
+        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID),
+    ]
     new_events = [
         helpers.new_terminated_event(encoded_output=json.dumps("terminated!")),
-        helpers.new_event_raised_event("my_event", encoded_input="42")]
+        helpers.new_event_raised_event("my_event", encoded_input="42"),
+    ]
 
     # Execute the orchestration. It should be in a running state waiting for an external event
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
@@ -915,6 +1087,7 @@ def test_terminate():
 @pytest.mark.parametrize("save_events", [True, False])
 def test_continue_as_new(save_events: bool):
     """Tests the behavior of the continue-as-new API"""
+
     def orchestrator(ctx: task.OrchestrationContext, input: int):
         yield ctx.create_timer(ctx.current_utc_datetime + timedelta(days=1))
         ctx.continue_as_new(input + 1, save_events=save_events)
@@ -928,9 +1101,9 @@ def test_continue_as_new(save_events: bool):
         helpers.new_event_raised_event("my_event", encoded_input="42"),
         helpers.new_event_raised_event("my_event", encoded_input="43"),
         helpers.new_event_raised_event("my_event", encoded_input="44"),
-        helpers.new_timer_created_event(1, datetime.utcnow() + timedelta(days=1))]
-    new_events = [
-        helpers.new_timer_fired_event(1, datetime.utcnow() + timedelta(days=1))]
+        helpers.new_timer_created_event(1, datetime.utcnow() + timedelta(days=1)),
+    ]
+    new_events = [helpers.new_timer_fired_event(1, datetime.utcnow() + timedelta(days=1))]
 
     # Execute the orchestration. It should be in a running state waiting for the timer to fire
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
@@ -944,12 +1117,15 @@ def test_continue_as_new(save_events: bool):
         event = complete_action.carryoverEvents[i]
         assert type(event) is pb.HistoryEvent
         assert event.HasField("eventRaised")
-        assert event.eventRaised.name.casefold() == "my_event".casefold()  # event names are case-insensitive
+        assert (
+            event.eventRaised.name.casefold() == "my_event".casefold()
+        )  # event names are case-insensitive
         assert event.eventRaised.input.value == json.dumps(42 + i)
 
 
 def test_fan_out():
     """Tests that a fan-out pattern correctly schedules N tasks"""
+
     def hello(_, name: str):
         return f"Hello {name}!"
 
@@ -967,7 +1143,10 @@ def test_fan_out():
     old_events = []
     new_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input="10")]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input="10"
+        ),
+    ]
 
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
@@ -983,6 +1162,7 @@ def test_fan_out():
 
 def test_fan_in():
     """Tests that a fan-in pattern works correctly"""
+
     def print_int(_, val: int):
         return str(val)
 
@@ -999,15 +1179,20 @@ def test_fan_in():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+    ]
     for i in range(10):
-        old_events.append(helpers.new_task_scheduled_event(
-            i + 1, activity_name, encoded_input=str(i)))
+        old_events.append(
+            helpers.new_task_scheduled_event(i + 1, activity_name, encoded_input=str(i))
+        )
 
     new_events = []
     for i in range(10):
-        new_events.append(helpers.new_task_completed_event(
-            i + 1, encoded_output=print_int(None, i)))
+        new_events.append(
+            helpers.new_task_completed_event(i + 1, encoded_output=print_int(None, i))
+        )
 
     # First, test with only the first 5 events. We expect the orchestration to be running
     # but return zero actions since its still waiting for the other 5 tasks to complete.
@@ -1028,6 +1213,7 @@ def test_fan_in():
 
 def test_fan_in_with_single_failure():
     """Tests that a fan-in pattern works correctly when one of the tasks fails"""
+
     def print_int(_, val: int):
         return str(val)
 
@@ -1044,17 +1230,22 @@ def test_fan_in_with_single_failure():
 
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)]
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
+    ]
     for i in range(10):
-        old_events.append(helpers.new_task_scheduled_event(
-            i + 1, activity_name, encoded_input=str(i)))
+        old_events.append(
+            helpers.new_task_scheduled_event(i + 1, activity_name, encoded_input=str(i))
+        )
 
     # 5 of the tasks complete successfully, 1 fails, and 4 are still running.
     # The expectation is that the orchestration will fail immediately.
     new_events = []
     for i in range(5):
-        new_events.append(helpers.new_task_completed_event(
-            i + 1, encoded_output=print_int(None, i)))
+        new_events.append(
+            helpers.new_task_completed_event(i + 1, encoded_output=print_int(None, i))
+        )
     ex = Exception("Kah-BOOOOM!!!")
     new_events.append(helpers.new_task_failed_event(6, ex))
 
@@ -1065,12 +1256,15 @@ def test_fan_in_with_single_failure():
 
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'TaskFailedError'  # TODO: Is this the right error type?
+    assert (
+        complete_action.failureDetails.errorType == "TaskFailedError"
+    )  # TODO: Is this the right error type?
     assert str(ex) in complete_action.failureDetails.errorMessage
 
 
 def test_when_any():
     """Tests that a when_any pattern works correctly"""
+
     def hello(_, name: str):
         return f"Hello {name}!"
 
@@ -1090,20 +1284,25 @@ def test_when_any():
     # Test 1: Start the orchestration and let it yield on the when_any. We expect the orchestration
     # to return two actions: one to schedule the "Tokyo" task and one to schedule the "Seattle" task.
     old_events = []
-    new_events = [helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)]
+    new_events = [
+        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None)
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
     assert len(actions) == 2
-    assert actions[0].HasField('scheduleTask')
-    assert actions[1].HasField('scheduleTask')
+    assert actions[0].HasField("scheduleTask")
+    assert actions[1].HasField("scheduleTask")
 
     # The next tests assume that the orchestration has already awaited at the task.when_any()
     old_events = [
         helpers.new_orchestrator_started_event(),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
         helpers.new_task_scheduled_event(1, activity_name, encoded_input=json.dumps("Tokyo")),
-        helpers.new_task_scheduled_event(2, activity_name, encoded_input=json.dumps("Seattle"))]
+        helpers.new_task_scheduled_event(2, activity_name, encoded_input=json.dumps("Seattle")),
+    ]
 
     # Test 2: Complete the "Tokyo" task. We expect the orchestration to complete with output "Hello, Tokyo!"
     encoded_output = json.dumps(hello(None, "Tokyo"))
@@ -1128,20 +1327,24 @@ def test_when_any():
 
 def test_when_any_with_retry():
     """Tests that a when_any pattern works correctly with retries"""
+
     def dummy_activity(_, inp: str):
         if inp == "Tokyo":
             raise ValueError("Kah-BOOOOM!!!")
         return f"Hello {inp}!"
 
     def orchestrator(ctx: task.OrchestrationContext, _):
-        t1 = ctx.call_activity(dummy_activity,
-                               retry_policy=task.RetryPolicy(
-                                   first_retry_interval=timedelta(seconds=1),
-                                   max_number_of_attempts=6,
-                                   backoff_coefficient=2,
-                                   max_retry_interval=timedelta(seconds=10),
-                                   retry_timeout=timedelta(seconds=50)),
-                               input="Tokyo")
+        t1 = ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=6,
+                backoff_coefficient=2,
+                max_retry_interval=timedelta(seconds=10),
+                retry_timeout=timedelta(seconds=50),
+            ),
+            input="Tokyo",
+        )
         t2 = ctx.call_activity(dummy_activity, input="Seattle")
         winner = yield task.when_any([t1, t2])
         if winner == t1:
@@ -1157,14 +1360,18 @@ def test_when_any_with_retry():
     # Simulate the task failing for the first time and confirm that a timer is scheduled for 1 second in the future
     old_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
         helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
-        helpers.new_task_scheduled_event(2, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(2, task.get_name(dummy_activity)),
+    ]
     expected_fire_at = current_timestamp + timedelta(seconds=1)
 
     new_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1178,7 +1385,8 @@ def test_when_any_with_retry():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(3, current_timestamp)]
+        helpers.new_timer_fired_event(3, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1191,7 +1399,8 @@ def test_when_any_with_retry():
     expected_fire_at = current_timestamp + timedelta(seconds=2)
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1213,20 +1422,24 @@ def test_when_any_with_retry():
 
 def test_when_all_with_retry():
     """Tests that a when_all pattern works correctly with retries"""
+
     def dummy_activity(ctx, inp: str):
         if inp == "Tokyo":
             raise ValueError("Kah-BOOOOM!!!")
         return f"Hello {inp}!"
 
     def orchestrator(ctx: task.OrchestrationContext, _):
-        t1 = ctx.call_activity(dummy_activity,
-                               retry_policy=task.RetryPolicy(
-                                   first_retry_interval=timedelta(seconds=2),
-                                   max_number_of_attempts=3,
-                                   backoff_coefficient=4,
-                                   max_retry_interval=timedelta(seconds=5),
-                                   retry_timeout=timedelta(seconds=50)),
-                               input="Tokyo")
+        t1 = ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=2),
+                max_number_of_attempts=3,
+                backoff_coefficient=4,
+                max_retry_interval=timedelta(seconds=5),
+                retry_timeout=timedelta(seconds=50),
+            ),
+            input="Tokyo",
+        )
         t2 = ctx.call_activity(dummy_activity, input="Seattle")
         results = yield task.when_all([t1, t2])
         return results
@@ -1239,14 +1452,18 @@ def test_when_all_with_retry():
     # Simulate the task failing for the first time and confirm that a timer is scheduled for 2 seconds in the future
     old_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
-        helpers.new_execution_started_event(orchestrator_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_execution_started_event(
+            orchestrator_name, TEST_INSTANCE_ID, encoded_input=None
+        ),
         helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
-        helpers.new_task_scheduled_event(2, task.get_name(dummy_activity))]
+        helpers.new_task_scheduled_event(2, task.get_name(dummy_activity)),
+    ]
     expected_fire_at = current_timestamp + timedelta(seconds=2)
 
     new_events = [
         helpers.new_orchestrator_started_event(timestamp=current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1260,7 +1477,8 @@ def test_when_all_with_retry():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_timer_fired_event(3, current_timestamp)]
+        helpers.new_timer_fired_event(3, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1273,7 +1491,8 @@ def test_when_all_with_retry():
     expected_fire_at = current_timestamp + timedelta(seconds=5)
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1286,8 +1505,10 @@ def test_when_all_with_retry():
     # And, Simulate the timer firing at the expected time and confirm that another activity task is scheduled
     encoded_output = json.dumps(dummy_activity(None, "Seattle"))
     old_events = old_events + new_events
-    new_events = [helpers.new_task_completed_event(2, encoded_output),
-                  helpers.new_timer_fired_event(4, current_timestamp)]
+    new_events = [
+        helpers.new_task_completed_event(2, encoded_output),
+        helpers.new_timer_fired_event(4, current_timestamp),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
@@ -1301,18 +1522,363 @@ def test_when_all_with_retry():
     old_events = old_events + new_events
     new_events = [
         helpers.new_orchestrator_started_event(current_timestamp),
-        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!"))]
+        helpers.new_task_failed_event(1, ValueError("Kah-BOOOOM!!!")),
+    ]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
     result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
     actions = result.actions
     complete_action = get_and_validate_single_complete_orchestration_action(actions)
     assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
-    assert complete_action.failureDetails.errorType == 'TaskFailedError'  # TODO: Should this be the specific error?
+    assert (
+        complete_action.failureDetails.errorType == "TaskFailedError"
+    )  # TODO: Should this be the specific error?
     assert str(ex) in complete_action.failureDetails.errorMessage
 
 
-def get_and_validate_single_complete_orchestration_action(actions: list[pb.OrchestratorAction]) -> pb.CompleteOrchestrationAction:
+def get_and_validate_single_complete_orchestration_action(
+    actions: list[pb.OrchestratorAction],
+) -> pb.CompleteOrchestrationAction:
     assert len(actions) == 1
     assert type(actions[0]) is pb.OrchestratorAction
     assert actions[0].HasField("completeOrchestration")
     return actions[0].completeOrchestration
+
+
+def test_activity_attempt_wrapper_applied_and_incremented():
+    """Verify activity input is wrapped with __dt_attempt on first schedule and incremented on retry."""
+    ctx = worker._RuntimeOrchestrationContext("test-inst")
+    ctx.current_utc_datetime = datetime.utcnow()
+    # First schedule with retry policy → attempt=1
+    rp = task.RetryPolicy(first_retry_interval=timedelta(seconds=1), max_number_of_attempts=3)
+    ctx.call_activity_function_helper(
+        id=1,
+        activity_function="act_name",
+        input={"x": 1},
+        retry_policy=rp,
+        is_sub_orch=False,
+        instance_id=None,
+        fn_task=None,
+    )
+    action = ctx._pending_actions[1]
+    assert action.HasField("scheduleTask")
+    payload = action.scheduleTask.input.value
+    obj = json.loads(payload)
+    assert obj.get("__dt_attempt") == 1
+    assert "__dt_payload" in obj
+
+    # Simulate retryable task with attempt_count=2 → schedule again with attempt=2
+    retryable = task.RetryableTask(
+        retry_policy=rp,
+        action=action,
+        start_time=ctx.current_utc_datetime,
+        is_sub_orch=False,
+    )
+    retryable.increment_attempt_count()  # attempt_count becomes 2
+    ctx.call_activity_function_helper(
+        id=1,
+        activity_function="act_name",
+        input=action.scheduleTask.input.value,  # pass through prior JSON input
+        retry_policy=rp,
+        is_sub_orch=False,
+        instance_id=None,
+        fn_task=retryable,
+    )
+    action2 = ctx._pending_actions[1]
+    # Pass through JSON from prior action when rescheduling (matches real worker path)
+    obj2 = json.loads(action2.scheduleTask.input.value)
+    assert obj2.get("__dt_attempt") == 2
+
+
+def test_sub_orchestrator_attempt_wrapper_applied_and_incremented():
+    """Verify sub-orchestrator input is wrapped with __dt_attempt and increments on retry."""
+    ctx = worker._RuntimeOrchestrationContext("test-inst")
+    ctx.current_utc_datetime = datetime.utcnow()
+    rp = task.RetryPolicy(first_retry_interval=timedelta(seconds=1), max_number_of_attempts=3)
+    ctx.call_activity_function_helper(
+        id=2,
+        activity_function="child_orch",
+        input={"y": 1},
+        retry_policy=rp,
+        is_sub_orch=True,
+        instance_id="child-1",
+        fn_task=None,
+    )
+    action = ctx._pending_actions[2]
+    assert action.HasField("createSubOrchestration")
+    obj = json.loads(action.createSubOrchestration.input.value)
+    assert obj.get("__dt_attempt") == 1
+
+    retryable = task.RetryableTask(
+        retry_policy=rp,
+        action=action,
+        start_time=ctx.current_utc_datetime,
+        is_sub_orch=True,
+    )
+    retryable.increment_attempt_count()  # 2
+    ctx.call_activity_function_helper(
+        id=2,
+        activity_function="child_orch",
+        input=action.createSubOrchestration.input.value,  # pass through prior JSON input
+        retry_policy=rp,
+        is_sub_orch=True,
+        instance_id="child-1",
+        fn_task=retryable,
+    )
+    action2 = ctx._pending_actions[2]
+    obj2 = json.loads(action2.createSubOrchestration.input.value)
+    assert obj2.get("__dt_attempt") == 2
+
+
+def test_activity_non_retryable_default_exception():
+    """If activity fails with NonRetryableError, it should not be retried and orchestration should fail immediately."""
+
+    def dummy_activity(ctx, _):
+        raise task.NonRetryableError("boom")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+                backoff_coefficient=1,
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, task.NonRetryableError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Activity task #1 failed: boom")
+
+
+def test_activity_non_retryable_policy_name():
+    """If policy marks ValueError as non-retryable (by name), fail immediately without retry."""
+
+    def dummy_activity(ctx, _):
+        raise ValueError("boom")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=5,
+                non_retryable_error_types=["ValueError"],
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, ValueError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__("Activity task #1 failed: boom")
+
+
+def test_activity_generic_exception_is_retryable():
+    """Verify that generic Exception is retryable by default (not treated as non-retryable)."""
+
+    def dummy_activity(ctx, _):
+        raise Exception("generic error")
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        yield ctx.call_activity(
+            dummy_activity,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+                backoff_coefficient=1,
+            ),
+        )
+
+    registry = worker._Registry()
+    name = registry.add_orchestrator(orchestrator)
+
+    current_timestamp = datetime.utcnow()
+    # First attempt fails
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_task_scheduled_event(1, task.get_name(dummy_activity)),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Should schedule a retry timer, not fail immediately
+    assert len(actions) == 1
+    assert actions[0].HasField("createTimer")
+    assert actions[0].id == 2
+
+    # Simulate the timer firing and activity being rescheduled
+    expected_fire_at = current_timestamp + timedelta(seconds=1)
+    old_events = old_events + new_events
+    current_timestamp = expected_fire_at
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_timer_fired_event(2, current_timestamp),
+    ]
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    assert len(actions) == 2  # timer + rescheduled task
+    assert actions[1].HasField("scheduleTask")
+    assert actions[1].id == 1
+
+    # Second attempt also fails
+    old_events = old_events + new_events
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Should schedule another retry timer
+    assert len(actions) == 3
+    assert actions[2].HasField("createTimer")
+    assert actions[2].id == 3
+
+    # Simulate the timer firing and activity being rescheduled
+    expected_fire_at = current_timestamp + timedelta(seconds=1)
+    old_events = old_events + new_events
+    current_timestamp = expected_fire_at
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_timer_fired_event(3, current_timestamp),
+    ]
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    assert len(actions) == 3  # timer + rescheduled task
+    assert actions[1].HasField("scheduleTask")
+    assert actions[1].id == 1
+
+    # Third attempt fails - should exhaust retries
+    old_events = old_events + new_events
+    new_events = [
+        helpers.new_orchestrator_started_event(current_timestamp),
+        helpers.new_task_failed_event(1, Exception("generic error")),
+    ]
+
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    # Now should fail - no more retries
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__(
+        "Activity task #1 failed: generic error"
+    )
+
+
+def test_sub_orchestration_non_retryable_default_exception():
+    """If sub-orchestrator fails with NonRetryableError, do not retry and fail immediately."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        pass
+
+    def parent(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(
+            child,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=3,
+            ),
+        )
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+    parent_name = registry.add_orchestrator(parent)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_sub_orchestration_created_event(1, child_name, "sub-1", encoded_input=None),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_sub_orchestration_failed_event(1, task.NonRetryableError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__(
+        "Sub-orchestration task #1 failed: boom"
+    )
+
+
+def test_sub_orchestration_non_retryable_policy_type():
+    """If policy marks ValueError as non-retryable (by class), fail immediately without retry."""
+
+    def child(ctx: task.OrchestrationContext, _):
+        pass
+
+    def parent(ctx: task.OrchestrationContext, _):
+        yield ctx.call_sub_orchestrator(
+            child,
+            retry_policy=task.RetryPolicy(
+                first_retry_interval=timedelta(seconds=1),
+                max_number_of_attempts=5,
+                non_retryable_error_types=[ValueError],
+            ),
+        )
+
+    registry = worker._Registry()
+    child_name = registry.add_orchestrator(child)
+    parent_name = registry.add_orchestrator(parent)
+
+    current_timestamp = datetime.utcnow()
+    old_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_execution_started_event(parent_name, TEST_INSTANCE_ID, encoded_input=None),
+        helpers.new_sub_orchestration_created_event(1, child_name, "sub-1", encoded_input=None),
+    ]
+    new_events = [
+        helpers.new_orchestrator_started_event(timestamp=current_timestamp),
+        helpers.new_sub_orchestration_failed_event(1, ValueError("boom")),
+    ]
+
+    executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
+    result = executor.execute(TEST_INSTANCE_ID, old_events, new_events)
+    actions = result.actions
+    complete_action = get_and_validate_single_complete_orchestration_action(actions)
+    assert complete_action.orchestrationStatus == pb.ORCHESTRATION_STATUS_FAILED
+    assert complete_action.failureDetails.errorMessage.__contains__(
+        "Sub-orchestration task #1 failed: boom"
+    )
