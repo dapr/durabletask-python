@@ -880,12 +880,12 @@ class ExecutionResults:
     actions: list[pb.OrchestratorAction]
     encoded_custom_status: Optional[str]
 
-
     def __init__(
             self, actions: list[pb.OrchestratorAction], encoded_custom_status: Optional[str]
     ):
         self.actions = actions
         self.encoded_custom_status = encoded_custom_status
+
 
 class _OrchestrationExecutor:
     _generator: Optional[task.Orchestrator] = None

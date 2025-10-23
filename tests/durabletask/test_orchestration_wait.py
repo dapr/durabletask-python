@@ -1,10 +1,8 @@
-from unittest.mock import patch, ANY, Mock
+from unittest.mock import Mock
 
 from durabletask.client import TaskHubGrpcClient
-from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
-from durabletask.internal.shared import (get_default_host_address,
-                                         get_grpc_channel)
 import pytest
+
 
 @pytest.mark.parametrize("timeout", [None, 0, 5])
 def test_wait_for_orchestration_start_timeout(timeout):
@@ -33,6 +31,7 @@ def test_wait_for_orchestration_start_timeout(timeout):
         assert kwargs.get('timeout') is None
     else:
         assert kwargs.get('timeout') == timeout
+
 
 @pytest.mark.parametrize("timeout", [None, 0, 5])
 def test_wait_for_orchestration_completion_timeout(timeout):

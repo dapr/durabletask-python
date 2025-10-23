@@ -283,6 +283,7 @@ class CompositeTask(Task[T]):
     def on_child_completed(self, task: Task[T]):
         pass
 
+
 class WhenAllTask(CompositeTask[list[T]]):
     """A task that completes when all of its child tasks complete."""
 
@@ -290,6 +291,10 @@ class WhenAllTask(CompositeTask[list[T]]):
         super().__init__(tasks)
         self._completed_tasks = 0
         self._failed_tasks = 0
+        # If there are no child tasks, this composite should complete immediately
+        if len(self._tasks) == 0:
+            self._result = []  # type: ignore[assignment]
+            self._is_complete = True
 
     @property
     def pending_tasks(self) -> int:
@@ -387,6 +392,10 @@ class WhenAnyTask(CompositeTask[Task]):
 
     def __init__(self, tasks: list[Task]):
         super().__init__(tasks)
+        # If there are no child tasks, complete immediately with an empty result
+        if len(self._tasks) == 0:
+            self._result = []  # type: ignore[assignment]
+            self._is_complete = True
 
     def on_child_completed(self, task: Task):
         # The first task to complete is the result of the WhenAnyTask.
