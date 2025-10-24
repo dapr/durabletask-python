@@ -158,18 +158,25 @@ def get_string_value(val: Optional[str]) -> Optional[wrappers_pb2.StringValue]:
 
 
 def new_complete_orchestration_action(
-        id: int,
-        status: pb.OrchestrationStatus,
-        result: Optional[str] = None,
-        failure_details: Optional[pb.TaskFailureDetails] = None,
-        carryover_events: Optional[list[pb.HistoryEvent]] = None) -> pb.OrchestratorAction:
+    id: int,
+    status: pb.OrchestrationStatus,
+    result: Optional[str] = None,
+    failure_details: Optional[pb.TaskFailureDetails] = None,
+    carryover_events: Optional[list[pb.HistoryEvent]] = None,
+    router: Optional[pb.TaskRouter] = None,
+) -> pb.OrchestratorAction:
     completeOrchestrationAction = pb.CompleteOrchestrationAction(
         orchestrationStatus=status,
         result=get_string_value(result),
         failureDetails=failure_details,
-        carryoverEvents=carryover_events)
+        carryoverEvents=carryover_events,
+    )
 
-    return pb.OrchestratorAction(id=id, completeOrchestration=completeOrchestrationAction)
+    return pb.OrchestratorAction(
+        id=id,
+        completeOrchestration=completeOrchestrationAction,
+        router=router,
+    )
 
 
 def new_create_timer_action(id: int, fire_at: datetime) -> pb.OrchestratorAction:

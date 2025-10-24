@@ -643,7 +643,10 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
         if result is not None:
             result_json = result if is_result_encoded else shared.to_json(result)
         action = ph.new_complete_orchestration_action(
-            self.next_sequence_number(), status, result_json
+            self.next_sequence_number(),
+            status,
+            result_json,
+            router=pb.TaskRouter(sourceAppID=self._app_id) if self._app_id else None,
         )
         self._pending_actions[action.id] = action
 
@@ -660,6 +663,7 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             pb.ORCHESTRATION_STATUS_FAILED,
             None,
             ph.new_failure_details(ex),
+            router=pb.TaskRouter(sourceAppID=self._app_id) if self._app_id else None,
         )
         self._pending_actions[action.id] = action
 
@@ -692,11 +696,10 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
             action = ph.new_complete_orchestration_action(
                 self.next_sequence_number(),
                 pb.ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
-                result=shared.to_json(self._new_input)
-                if self._new_input is not None
-                else None,
+                result=shared.to_json(self._new_input) if self._new_input is not None else None,
                 failure_details=None,
                 carryover_events=carryover_events,
+                router=pb.TaskRouter(sourceAppID=self._app_id) if self._app_id else None,
             )
             return [action]
         else:
