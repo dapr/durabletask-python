@@ -51,9 +51,19 @@ def get_default_host_address() -> str:
 
 
 def get_grpc_channel(
-        host_address: Optional[str],
-        secure_channel: bool = False,
-        interceptors: Optional[Sequence[ClientInterceptor]] = None) -> grpc.Channel:
+    host_address: Optional[str],
+    secure_channel: bool = False,
+    interceptors: Optional[Sequence[ClientInterceptor]] = None,
+    options: Optional[Sequence[tuple[str, Any]]] = None,
+) -> grpc.Channel:
+    """create a grpc channel
+
+    Args:
+        host_address: The host address of the gRPC server. If None, uses the default address.
+        secure_channel: Whether to use a secure channel (TLS/SSL). Defaults to False.
+        interceptors: Optional sequence of client interceptors to apply to the channel.
+        options: Optional sequence of gRPC channel options as (key, value) tuples. Keys defined in https://grpc.github.io/grpc/core/group__grpc__arg__keys.html
+    """
     if host_address is None:
         host_address = get_default_host_address()
 
@@ -61,21 +71,34 @@ def get_grpc_channel(
         if host_address.lower().startswith(protocol):
             secure_channel = True
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     for protocol in INSECURE_PROTOCOLS:
         if host_address.lower().startswith(protocol):
             secure_channel = False
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     # Create the base channel
-    if secure_channel:
-        channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials())
+    if options is not None:
+        # validate all options keys prefix starts with `grpc.`
+        if not all(key.startswith('grpc.') for key, _ in options):
+            raise ValueError(
+                f'All options keys must start with `grpc.`. Invalid options: {options}'
+            )
+        if secure_channel:
+            channel = grpc.secure_channel(
+                host_address, grpc.ssl_channel_credentials(), options=options
+            )
+        else:
+            channel = grpc.insecure_channel(host_address, options=options)
     else:
-        channel = grpc.insecure_channel(host_address)
+        if secure_channel:
+            channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials())
+        else:
+            channel = grpc.insecure_channel(host_address)
 
     # Apply interceptors ONLY if they exist
     if interceptors:

@@ -91,15 +91,17 @@ def new_orchestration_state(instance_id: str, res: pb.GetInstanceResponse) -> Op
 
 
 class TaskHubGrpcClient:
-
-    def __init__(self, *,
-                 host_address: Optional[str] = None,
-                 metadata: Optional[list[tuple[str, str]]] = None,
-                 log_handler: Optional[logging.Handler] = None,
-                 log_formatter: Optional[logging.Formatter] = None,
-                 secure_channel: bool = False,
-                 interceptors: Optional[Sequence[shared.ClientInterceptor]] = None):
-
+    def __init__(
+        self,
+        *,
+        host_address: Optional[str] = None,
+        metadata: Optional[list[tuple[str, str]]] = None,
+        log_handler: Optional[logging.Handler] = None,
+        log_formatter: Optional[logging.Formatter] = None,
+        secure_channel: bool = False,
+        interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
+    ):
         # If the caller provided metadata, we need to create a new interceptor for it and
         # add it to the list of interceptors.
         if interceptors is not None:
@@ -114,7 +116,8 @@ class TaskHubGrpcClient:
         channel = shared.get_grpc_channel(
             host_address=host_address,
             secure_channel=secure_channel,
-            interceptors=interceptors
+            interceptors=interceptors,
+            options=channel_options,
         )
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
         self._logger = shared.get_logger("client", log_handler, log_formatter)

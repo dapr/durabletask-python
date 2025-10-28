@@ -20,15 +20,17 @@ from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorIm
 
 
 class AsyncTaskHubGrpcClient:
-
-    def __init__(self, *,
-                 host_address: Optional[str] = None,
-                 metadata: Optional[list[tuple[str, str]]] = None,
-                 log_handler: Optional[logging.Handler] = None,
-                 log_formatter: Optional[logging.Formatter] = None,
-                 secure_channel: bool = False,
-                 interceptors: Optional[Sequence[ClientInterceptor]] = None):
-
+    def __init__(
+        self,
+        *,
+        host_address: Optional[str] = None,
+        metadata: Optional[list[tuple[str, str]]] = None,
+        log_handler: Optional[logging.Handler] = None,
+        log_formatter: Optional[logging.Formatter] = None,
+        secure_channel: bool = False,
+        interceptors: Optional[Sequence[ClientInterceptor]] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
+    ):
         if interceptors is not None:
             interceptors = list(interceptors)
             if metadata is not None:
@@ -41,7 +43,8 @@ class AsyncTaskHubGrpcClient:
         channel = get_grpc_aio_channel(
             host_address=host_address,
             secure_channel=secure_channel,
-            interceptors=interceptors
+            interceptors=interceptors,
+            options=channel_options,
         )
         self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
