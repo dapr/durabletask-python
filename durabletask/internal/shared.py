@@ -30,8 +30,8 @@ def get_default_host_address() -> str:
     Honors environment variables if present; otherwise defaults to localhost:4001.
 
     Supported environment variables (checked in order):
-    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
-    - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
+    - DAPR_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
+    - DAPR_GRPC_HOST/DAPR_RUNTIME_HOST and DAPR_GRPC_PORT
     """
     import os
 
@@ -59,7 +59,7 @@ def get_grpc_channel(
     """create a grpc channel
 
     Args:
-        host_address: The host address of the gRPC server. If None, uses the default address.
+        host_address: The host address of the gRPC server. If None, uses the default address (as defined in get_default_host_address above).
         secure_channel: Whether to use a secure channel (TLS/SSL). Defaults to False.
         interceptors: Optional sequence of client interceptors to apply to the channel.
         options: Optional sequence of gRPC channel options as (key, value) tuples. Keys defined in https://grpc.github.io/grpc/core/group__grpc__arg__keys.html
