@@ -4,6 +4,7 @@
 import dataclasses
 import json
 import logging
+import os
 from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
@@ -33,7 +34,6 @@ def get_default_host_address() -> str:
     - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
     - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
     """
-    import os
 
     # Full endpoint overrides
     endpoint = os.environ.get("DAPR_GRPC_ENDPOINT")
