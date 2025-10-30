@@ -366,6 +366,45 @@ def test_continue_as_new():
         assert all_results == [1, 2, 3, 4, 5]
 
 
+def test_continue_as_new_with_activity_e2e():
+    """E2E test for continue_as_new with activities (generator-based)."""
+    activity_results = []
+
+    def double_activity(ctx: task.ActivityContext, value: int) -> int:
+        """Activity that doubles the value."""
+        result = value * 2
+        activity_results.append(result)
+        return result
+
+    def orchestrator(ctx: task.OrchestrationContext, counter: int):
+        # Call activity to process the counter
+        processed = yield ctx.call_activity(double_activity, input=counter)
+
+        # Continue as new up to 3 times
+        if counter < 3:
+            ctx.continue_as_new(counter + 1, save_events=False)
+        else:
+            return {"counter": counter, "processed": processed, "all_results": activity_results}
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_activity(double_activity)
+        w.add_orchestrator(orchestrator)
+        w.start()
+
+        task_hub_client = client.TaskHubGrpcClient()
+        id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
+
+        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+
+        output = json.loads(state.serialized_output)
+        # Should have called activity 3 times with input values 1, 2, 3
+        assert activity_results == [2, 4, 6]
+        assert output["counter"] == 3
+        assert output["processed"] == 6
+
+
 # NOTE: This test fails when running against durabletask-go with sqlite because the sqlite backend does not yet
 #       support orchestration ID reuse. This gap is being tracked here:
 #       https://github.com/microsoft/durabletask-go/issues/42

@@ -4,6 +4,7 @@
 import dataclasses
 import json
 import logging
+import os
 from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
@@ -13,7 +14,7 @@ ClientInterceptor = Union[
     grpc.UnaryUnaryClientInterceptor,
     grpc.UnaryStreamClientInterceptor,
     grpc.StreamUnaryClientInterceptor,
-    grpc.StreamStreamClientInterceptor
+    grpc.StreamStreamClientInterceptor,
 ]
 
 # Field name used to indicate that an object was automatically serialized
@@ -25,6 +26,27 @@ INSECURE_PROTOCOLS = ["http://", "grpc://"]
 
 
 def get_default_host_address() -> str:
+    """Resolve the default Durable Task sidecar address.
+
+    Honors environment variables if present; otherwise defaults to localhost:4001.
+
+    Supported environment variables (checked in order):
+    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
+    - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
+    """
+
+    # Full endpoint overrides
+    endpoint = os.environ.get("DAPR_GRPC_ENDPOINT")
+    if endpoint:
+        return endpoint
+
+    # Host/port split overrides
+    host = os.environ.get("DAPR_GRPC_HOST") or os.environ.get("DAPR_RUNTIME_HOST")
+    if host:
+        port = os.environ.get("DAPR_GRPC_PORT", "4001")
+        return f"{host}:{port}"
+
+    # Default to durabletask-go default port
     return "localhost:4001"
 
 
