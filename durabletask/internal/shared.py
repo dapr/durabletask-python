@@ -51,9 +51,10 @@ def get_default_host_address() -> str:
 
 
 def get_grpc_channel(
-        host_address: Optional[str],
-        secure_channel: bool = False,
-        interceptors: Optional[Sequence[ClientInterceptor]] = None) -> grpc.Channel:
+    host_address: Optional[str],
+    secure_channel: bool = False,
+    interceptors: Optional[Sequence[ClientInterceptor]] = None,
+) -> grpc.Channel:
     if host_address is None:
         host_address = get_default_host_address()
 
@@ -61,14 +62,14 @@ def get_grpc_channel(
         if host_address.lower().startswith(protocol):
             secure_channel = True
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     for protocol in INSECURE_PROTOCOLS:
         if host_address.lower().startswith(protocol):
             secure_channel = False
             # remove the protocol from the host name
-            host_address = host_address[len(protocol):]
+            host_address = host_address[len(protocol) :]
             break
 
     # Create the base channel
@@ -84,9 +85,10 @@ def get_grpc_channel(
 
 
 def get_logger(
-        name_suffix: str,
-        log_handler: Optional[logging.Handler] = None,
-        log_formatter: Optional[logging.Formatter] = None) -> logging.Logger:
+    name_suffix: str,
+    log_handler: Optional[logging.Handler] = None,
+    log_formatter: Optional[logging.Formatter] = None,
+) -> logging.Logger:
     logger = logging.Logger(f"durabletask-{name_suffix}")
 
     # Add a default log handler if none is provided
@@ -99,7 +101,8 @@ def get_logger(
     if log_formatter is None:
         log_formatter = logging.Formatter(
             fmt="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-            datefmt='%Y-%m-%d %H:%M:%S')
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     log_handler.setFormatter(log_formatter)
     return logger
 

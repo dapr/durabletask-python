@@ -16,7 +16,6 @@ pytestmark = pytest.mark.e2e
 
 
 def test_empty_orchestration():
-
     invoked = False
 
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
@@ -44,7 +43,6 @@ def test_empty_orchestration():
 
 
 def test_activity_sequence():
-
     def plus_one(_: task.ActivityContext, input: int) -> int:
         return input + 1
 
@@ -64,8 +62,7 @@ def test_activity_sequence():
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(sequence, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(
-            id, timeout=30)
+        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.name == task.get_name(sequence)
@@ -78,7 +75,6 @@ def test_activity_sequence():
 
 
 def test_activity_error_handling():
-
     def throw(_: task.ActivityContext, input: int) -> int:
         raise RuntimeError("Kah-BOOOOM!!!")
 
@@ -139,8 +135,7 @@ def test_sub_orchestration_fan_out():
         # Fan out to multiple sub-orchestrations
         tasks = []
         for _ in range(count):
-            tasks.append(ctx.call_sub_orchestrator(
-                orchestrator_child, input=3))
+            tasks.append(ctx.call_sub_orchestrator(orchestrator_child, input=3))
         # Wait for all sub-orchestrations to complete
         yield task.when_all(tasks)
 
@@ -163,9 +158,9 @@ def test_sub_orchestration_fan_out():
 
 def test_wait_for_multiple_external_events():
     def orchestrator(ctx: task.OrchestrationContext, _):
-        a = yield ctx.wait_for_external_event('A')
-        b = yield ctx.wait_for_external_event('B')
-        c = yield ctx.wait_for_external_event('C')
+        a = yield ctx.wait_for_external_event("A")
+        b = yield ctx.wait_for_external_event("B")
+        c = yield ctx.wait_for_external_event("C")
         return [a, b, c]
 
     # Start a worker, which will connect to the sidecar in a background thread
@@ -176,20 +171,20 @@ def test_wait_for_multiple_external_events():
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator)
-        task_hub_client.raise_orchestration_event(id, 'A', data='a')
-        task_hub_client.raise_orchestration_event(id, 'B', data='b')
-        task_hub_client.raise_orchestration_event(id, 'C', data='c')
+        task_hub_client.raise_orchestration_event(id, "A", data="a")
+        task_hub_client.raise_orchestration_event(id, "B", data="b")
+        task_hub_client.raise_orchestration_event(id, "C", data="c")
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-    assert state.serialized_output == json.dumps(['a', 'b', 'c'])
+    assert state.serialized_output == json.dumps(["a", "b", "c"])
 
 
 @pytest.mark.parametrize("raise_event", [True, False])
 def test_wait_for_external_event_timeout(raise_event: bool):
     def orchestrator(ctx: task.OrchestrationContext, _):
-        approval: task.Task[bool] = ctx.wait_for_external_event('Approval')
+        approval: task.Task[bool] = ctx.wait_for_external_event("Approval")
         timeout = ctx.create_timer(timedelta(seconds=3))
         winner = yield task.when_any([approval, timeout])
         if winner == approval:
@@ -206,7 +201,7 @@ def test_wait_for_external_event_timeout(raise_event: bool):
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator)
         if raise_event:
-            task_hub_client.raise_orchestration_event(id, 'Approval')
+            task_hub_client.raise_orchestration_event(id, "Approval")
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
@@ -325,9 +320,13 @@ def test_terminate_recursive():
             time.sleep(delay_time)
 
             if recurse:
-                assert activity_counter == 0, "Activity should not have executed with recursive termination"
+                assert activity_counter == 0, (
+                    "Activity should not have executed with recursive termination"
+                )
             else:
-                assert activity_counter == 5, "Activity should have executed without recursive termination"
+                assert activity_counter == 5, (
+                    "Activity should have executed without recursive termination"
+                )
 
 
 def test_continue_as_new():
@@ -425,7 +424,8 @@ def test_retry_policies():
         max_number_of_attempts=3,
         backoff_coefficient=1,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=30))
+        retry_timeout=timedelta(seconds=30),
+    )
 
     def parent_orchestrator_with_retry(ctx: task.OrchestrationContext, _):
         yield ctx.call_sub_orchestrator(child_orchestrator_with_retry, retry_policy=retry_policy)
@@ -474,7 +474,8 @@ def test_retry_timeout():
         max_number_of_attempts=5,
         backoff_coefficient=2,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=14))
+        retry_timeout=timedelta(seconds=14),
+    )
 
     def mock_orchestrator(ctx: task.OrchestrationContext, _):
         yield ctx.call_activity(throw_activity, retry_policy=retry_policy)
@@ -502,7 +503,6 @@ def test_retry_timeout():
 
 
 def test_custom_status():
-
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
         ctx.set_custom_status("foobaz")
 
@@ -522,4 +522,4 @@ def test_custom_status():
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == "\"foobaz\""
+    assert state.serialized_custom_status == '"foobaz"'

@@ -8,10 +8,9 @@ from datetime import timedelta
 
 import pytest
 
+from durabletask import task, worker
 from durabletask.aio.client import AsyncTaskHubGrpcClient
 from durabletask.client import OrchestrationStatus
-from durabletask import task, worker
-
 
 # NOTE: These tests assume a sidecar process is running. Example command:
 #       go install github.com/microsoft/durabletask-go@main
@@ -20,7 +19,6 @@ pytestmark = [pytest.mark.e2e, pytest.mark.asyncio]
 
 
 async def test_empty_orchestration():
-
     invoked = False
 
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
@@ -49,7 +47,6 @@ async def test_empty_orchestration():
 
 
 async def test_activity_sequence():
-
     def plus_one(_: task.ActivityContext, input: int) -> int:
         return input + 1
 
@@ -83,7 +80,6 @@ async def test_activity_sequence():
 
 
 async def test_activity_error_handling():
-
     def throw(_: task.ActivityContext, input: int) -> int:
         raise RuntimeError("Kah-BOOOOM!!!")
 
@@ -145,8 +141,7 @@ async def test_sub_orchestration_fan_out():
         # Fan out to multiple sub-orchestrations
         tasks = []
         for _ in range(count):
-            tasks.append(ctx.call_sub_orchestrator(
-                orchestrator_child, input=3))
+            tasks.append(ctx.call_sub_orchestrator(orchestrator_child, input=3))
         # Wait for all sub-orchestrations to complete
         yield task.when_all(tasks)
 
@@ -170,9 +165,9 @@ async def test_sub_orchestration_fan_out():
 
 async def test_wait_for_multiple_external_events():
     def orchestrator(ctx: task.OrchestrationContext, _):
-        a = yield ctx.wait_for_external_event('A')
-        b = yield ctx.wait_for_external_event('B')
-        c = yield ctx.wait_for_external_event('C')
+        a = yield ctx.wait_for_external_event("A")
+        b = yield ctx.wait_for_external_event("B")
+        c = yield ctx.wait_for_external_event("C")
         return [a, b, c]
 
     # Start a worker, which will connect to the sidecar in a background thread
@@ -183,21 +178,21 @@ async def test_wait_for_multiple_external_events():
         # Start the orchestration and immediately raise events to it.
         client = AsyncTaskHubGrpcClient()
         id = await client.schedule_new_orchestration(orchestrator)
-        await client.raise_orchestration_event(id, 'A', data='a')
-        await client.raise_orchestration_event(id, 'B', data='b')
-        await client.raise_orchestration_event(id, 'C', data='c')
+        await client.raise_orchestration_event(id, "A", data="a")
+        await client.raise_orchestration_event(id, "B", data="b")
+        await client.raise_orchestration_event(id, "C", data="c")
         state = await client.wait_for_orchestration_completion(id, timeout=30)
         await client.aclose()
 
     assert state is not None
     assert state.runtime_status == OrchestrationStatus.COMPLETED
-    assert state.serialized_output == json.dumps(['a', 'b', 'c'])
+    assert state.serialized_output == json.dumps(["a", "b", "c"])
 
 
 @pytest.mark.parametrize("raise_event", [True, False])
 async def test_wait_for_external_event_timeout(raise_event: bool):
     def orchestrator(ctx: task.OrchestrationContext, _):
-        approval: task.Task[bool] = ctx.wait_for_external_event('Approval')
+        approval: task.Task[bool] = ctx.wait_for_external_event("Approval")
         timeout = ctx.create_timer(timedelta(seconds=3))
         winner = yield task.when_any([approval, timeout])
         if winner == approval:
@@ -214,7 +209,7 @@ async def test_wait_for_external_event_timeout(raise_event: bool):
         client = AsyncTaskHubGrpcClient()
         id = await client.schedule_new_orchestration(orchestrator)
         if raise_event:
-            await client.raise_orchestration_event(id, 'Approval')
+            await client.raise_orchestration_event(id, "Approval")
         state = await client.wait_for_orchestration_completion(id, timeout=30)
         await client.aclose()
 
@@ -380,7 +375,8 @@ async def test_retry_policies():
         max_number_of_attempts=3,
         backoff_coefficient=1,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=30))
+        retry_timeout=timedelta(seconds=30),
+    )
 
     def parent_orchestrator_with_retry(ctx: task.OrchestrationContext, _):
         yield ctx.call_sub_orchestrator(child_orchestrator_with_retry, retry_policy=retry_policy)
@@ -429,7 +425,8 @@ async def test_retry_timeout():
         max_number_of_attempts=5,
         backoff_coefficient=2,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=14))
+        retry_timeout=timedelta(seconds=14),
+    )
 
     def mock_orchestrator(ctx: task.OrchestrationContext, _):
         yield ctx.call_activity(throw_activity, retry_policy=retry_policy)
@@ -457,7 +454,6 @@ async def test_retry_timeout():
 
 
 async def test_custom_status():
-
     def empty_orchestrator(ctx: task.OrchestrationContext, _):
         ctx.set_custom_status("foobaz")
 
@@ -477,4 +473,4 @@ async def test_custom_status():
     assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == "\"foobaz\""
+    assert state.serialized_custom_status == '"foobaz"'
