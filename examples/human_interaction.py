@@ -15,23 +15,24 @@ from durabletask import client, task, worker
 @dataclass
 class Order:
     """Represents a purchase order"""
+
     Cost: float
     Product: str
     Quantity: int
 
     def __str__(self):
-        return f'{self.Product} ({self.Quantity})'
+        return f"{self.Product} ({self.Quantity})"
 
 
 def send_approval_request(_: task.ActivityContext, order: Order) -> None:
     """Activity function that sends an approval request to the manager"""
     time.sleep(5)
-    print(f'*** Sending approval request for order: {order}')
+    print(f"*** Sending approval request for order: {order}")
 
 
 def place_order(_: task.ActivityContext, order: Order) -> None:
     """Activity function that places an order"""
-    print(f'*** Placing order: {order}')
+    print(f"*** Placing order: {order}")
 
 
 def purchase_order_workflow(ctx: task.OrchestrationContext, order: Order):
@@ -92,7 +93,7 @@ if __name__ == "__main__":
             if not state:
                 print("Workflow not found!")  # not expected
             elif state.runtime_status == client.OrchestrationStatus.COMPLETED:
-                print(f'Orchestration completed! Result: {state.serialized_output}')
+                print(f"Orchestration completed! Result: {state.serialized_output}")
             else:
                 state.raise_if_failed()  # raises an exception
         except TimeoutError:

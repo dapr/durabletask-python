@@ -4,6 +4,7 @@
 import dataclasses
 import json
 import logging
+import os
 from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
@@ -33,7 +34,6 @@ def get_default_host_address() -> str:
     - DAPR_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
     - DAPR_GRPC_HOST/DAPR_RUNTIME_HOST and DAPR_GRPC_PORT
     """
-    import os
 
     # Full endpoint overrides
     endpoint = os.environ.get("DAPR_GRPC_ENDPOINT")
@@ -107,9 +107,10 @@ def get_grpc_channel(
 
 
 def get_logger(
-        name_suffix: str,
-        log_handler: Optional[logging.Handler] = None,
-        log_formatter: Optional[logging.Formatter] = None) -> logging.Logger:
+    name_suffix: str,
+    log_handler: Optional[logging.Handler] = None,
+    log_formatter: Optional[logging.Formatter] = None,
+) -> logging.Logger:
     logger = logging.Logger(f"durabletask-{name_suffix}")
 
     # Add a default log handler if none is provided
@@ -122,7 +123,8 @@ def get_logger(
     if log_formatter is None:
         log_formatter = logging.Formatter(
             fmt="%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s",
-            datefmt='%Y-%m-%d %H:%M:%S')
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     log_handler.setFormatter(log_formatter)
     return logger
 

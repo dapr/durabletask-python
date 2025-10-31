@@ -49,24 +49,21 @@ def get_grpc_aio_channel(
             host_address = host_address[len(protocol) :]
             break
 
-    # Create the base channel
-    if secure_channel:
-        if options is not None:
-            return grpc_aio.secure_channel(
-                host_address,
-                grpc.ssl_channel_credentials(),
-                interceptors=interceptors,
-                options=options,
-            )
-        return grpc_aio.secure_channel(
-            host_address, grpc.ssl_channel_credentials(), interceptors=interceptors
-        )
-
+    # channel interceptors/options
+    channel_kwargs = dict(interceptors=interceptors)
     if options is not None:
         # validate all options keys prefix starts with `grpc.`
         if not all(key.startswith('grpc.') for key, _ in options):
             raise ValueError(
                 f'All options keys must start with `grpc.`. Invalid options: {options}'
             )
-        return grpc_aio.insecure_channel(host_address, interceptors=interceptors, options=options)
-    return grpc_aio.insecure_channel(host_address, interceptors=interceptors)
+        channel_kwargs["options"] = options
+
+    if secure_channel:
+        channel = grpc_aio.secure_channel(
+            host_address, grpc.ssl_channel_credentials(), **channel_kwargs
+        )
+    else:
+        channel = grpc_aio.insecure_channel(host_address, **channel_kwargs)
+
+    return channel
