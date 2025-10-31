@@ -3,54 +3,60 @@
 
 from unittest.mock import ANY, patch
 
-from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorImpl
-from durabletask.internal.shared import get_default_host_address
-from durabletask.aio.internal.shared import get_grpc_aio_channel
 from durabletask.aio.client import AsyncTaskHubGrpcClient
+from durabletask.aio.internal.grpc_interceptor import DefaultClientInterceptorImpl
+from durabletask.aio.internal.shared import get_grpc_aio_channel
+from durabletask.internal.shared import get_default_host_address
 
-
-HOST_ADDRESS = 'localhost:50051'
-METADATA = [('key1', 'value1'), ('key2', 'value2')]
+HOST_ADDRESS = "localhost:50051"
+METADATA = [("key1", "value1"), ("key2", "value2")]
 INTERCEPTORS_AIO = [DefaultClientInterceptorImpl(METADATA)]
 
 
 def test_get_grpc_aio_channel_insecure():
-    with patch('durabletask.aio.internal.shared.grpc_aio.insecure_channel') as mock_channel:
+    with patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_channel:
         get_grpc_aio_channel(HOST_ADDRESS, False, interceptors=INTERCEPTORS_AIO)
         mock_channel.assert_called_once_with(HOST_ADDRESS, interceptors=INTERCEPTORS_AIO)
 
 
 def test_get_grpc_aio_channel_secure():
-    with patch('durabletask.aio.internal.shared.grpc_aio.secure_channel') as mock_channel, patch(
-            'grpc.ssl_channel_credentials') as mock_credentials:
+    with (
+        patch("durabletask.aio.internal.shared.grpc_aio.secure_channel") as mock_channel,
+        patch("grpc.ssl_channel_credentials") as mock_credentials,
+    ):
         get_grpc_aio_channel(HOST_ADDRESS, True, interceptors=INTERCEPTORS_AIO)
-        mock_channel.assert_called_once_with(HOST_ADDRESS, mock_credentials.return_value, interceptors=INTERCEPTORS_AIO)
+        mock_channel.assert_called_once_with(
+            HOST_ADDRESS, mock_credentials.return_value, interceptors=INTERCEPTORS_AIO
+        )
 
 
 def test_get_grpc_aio_channel_default_host_address():
-    with patch('durabletask.aio.internal.shared.grpc_aio.insecure_channel') as mock_channel:
+    with patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_channel:
         get_grpc_aio_channel(None, False, interceptors=INTERCEPTORS_AIO)
-        mock_channel.assert_called_once_with(get_default_host_address(), interceptors=INTERCEPTORS_AIO)
+        mock_channel.assert_called_once_with(
+            get_default_host_address(), interceptors=INTERCEPTORS_AIO
+        )
 
 
 def test_get_grpc_aio_channel_with_interceptors():
-    with patch('durabletask.aio.internal.shared.grpc_aio.insecure_channel') as mock_channel:
+    with patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_channel:
         get_grpc_aio_channel(HOST_ADDRESS, False, interceptors=INTERCEPTORS_AIO)
         mock_channel.assert_called_once_with(HOST_ADDRESS, interceptors=INTERCEPTORS_AIO)
 
         # Capture and check the arguments passed to insecure_channel()
         args, kwargs = mock_channel.call_args
         assert args[0] == HOST_ADDRESS
-        assert 'interceptors' in kwargs
-        interceptors = kwargs['interceptors']
+        assert "interceptors" in kwargs
+        interceptors = kwargs["interceptors"]
         assert isinstance(interceptors[0], DefaultClientInterceptorImpl)
         assert interceptors[0]._metadata == METADATA
 
 
 def test_grpc_aio_channel_with_host_name_protocol_stripping():
-    with patch('durabletask.aio.internal.shared.grpc_aio.insecure_channel') as mock_insecure_channel, patch(
-            'durabletask.aio.internal.shared.grpc_aio.secure_channel') as mock_secure_channel:
-
+    with (
+        patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_insecure_channel,
+        patch("durabletask.aio.internal.shared.grpc_aio.secure_channel") as mock_secure_channel,
+    ):
         host_name = "myserver.com:1234"
 
         prefix = "grpc://"
@@ -95,12 +101,12 @@ def test_grpc_aio_channel_with_host_name_protocol_stripping():
 
 
 def test_async_client_construct_with_metadata():
-    with patch('durabletask.aio.internal.shared.grpc_aio.insecure_channel') as mock_channel:
+    with patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_channel:
         AsyncTaskHubGrpcClient(host_address=HOST_ADDRESS, metadata=METADATA)
         # Ensure channel created with an interceptor that has the expected metadata
         args, kwargs = mock_channel.call_args
         assert args[0] == HOST_ADDRESS
-        assert 'interceptors' in kwargs
-        interceptors = kwargs['interceptors']
+        assert "interceptors" in kwargs
+        interceptors = kwargs["interceptors"]
         assert isinstance(interceptors[0], DefaultClientInterceptorImpl)
         assert interceptors[0]._metadata == METADATA

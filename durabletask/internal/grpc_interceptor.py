@@ -7,20 +7,26 @@ import grpc
 
 
 class _ClientCallDetails(
-        namedtuple(
-            '_ClientCallDetails',
-            ['method', 'timeout', 'metadata', 'credentials', 'wait_for_ready', 'compression']),
-        grpc.ClientCallDetails):
+    namedtuple(
+        "_ClientCallDetails",
+        ["method", "timeout", "metadata", "credentials", "wait_for_ready", "compression"],
+    ),
+    grpc.ClientCallDetails,
+):
     """This is an implementation of the ClientCallDetails interface needed for interceptors.
     This class takes six named values and inherits the ClientCallDetails from grpc package.
     This class encloses the values that describe a RPC to be invoked.
     """
+
     pass
 
 
-class DefaultClientInterceptorImpl (
-        grpc.UnaryUnaryClientInterceptor, grpc.UnaryStreamClientInterceptor,
-        grpc.StreamUnaryClientInterceptor, grpc.StreamStreamClientInterceptor):
+class DefaultClientInterceptorImpl(
+    grpc.UnaryUnaryClientInterceptor,
+    grpc.UnaryStreamClientInterceptor,
+    grpc.StreamUnaryClientInterceptor,
+    grpc.StreamStreamClientInterceptor,
+):
     """The class implements a UnaryUnaryClientInterceptor, UnaryStreamClientInterceptor,
     StreamUnaryClientInterceptor and StreamStreamClientInterceptor from grpc to add an
     interceptor to add additional headers to all calls as needed."""
@@ -29,10 +35,9 @@ class DefaultClientInterceptorImpl (
         super().__init__()
         self._metadata = metadata
 
-    def _intercept_call(
-            self, client_call_details: _ClientCallDetails) -> grpc.ClientCallDetails:
+    def _intercept_call(self, client_call_details: _ClientCallDetails) -> grpc.ClientCallDetails:
         """Internal intercept_call implementation which adds metadata to grpc metadata in the RPC
-            call details."""
+        call details."""
         if self._metadata is None:
             return client_call_details
 
@@ -43,8 +48,13 @@ class DefaultClientInterceptorImpl (
 
         metadata.extend(self._metadata)
         client_call_details = _ClientCallDetails(
-            client_call_details.method, client_call_details.timeout, metadata,
-            client_call_details.credentials, client_call_details.wait_for_ready, client_call_details.compression)
+            client_call_details.method,
+            client_call_details.timeout,
+            metadata,
+            client_call_details.credentials,
+            client_call_details.wait_for_ready,
+            client_call_details.compression,
+        )
 
         return client_call_details
 
