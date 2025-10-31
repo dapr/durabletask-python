@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
 import grpc
+from grpc.aio import ChannelArgumentType
 
 ClientInterceptor = Union[
     grpc.UnaryUnaryClientInterceptor,
@@ -31,8 +32,8 @@ def get_default_host_address() -> str:
     Honors environment variables if present; otherwise defaults to localhost:4001.
 
     Supported environment variables (checked in order):
-    - DURABLETASK_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
-    - DURABLETASK_GRPC_HOST and DURABLETASK_GRPC_PORT
+    - DAPR_GRPC_ENDPOINT (e.g., "localhost:4001", "grpcs://host:443")
+    - DAPR_GRPC_HOST/DAPR_RUNTIME_HOST and DAPR_GRPC_PORT
     """
 
     # Full endpoint overrides
@@ -50,11 +51,31 @@ def get_default_host_address() -> str:
     return "localhost:4001"
 
 
+def validate_grpc_options(options: ChannelArgumentType):
+    """Validate that all gRPC options are valid. Mainly checking keys. Values can be string, int, float, bool and pointer"""
+    for key, value in options:
+        if not isinstance(key, str):
+            raise ValueError(f"gRPC option key must be a string. Invalid key: {key}")
+        if not all(key.startswith("grpc.") for key, _ in options):
+            raise ValueError(
+                f"All options keys must start with `grpc.`. Invalid options: {options}"
+            )
+
+
 def get_grpc_channel(
     host_address: Optional[str],
     secure_channel: bool = False,
     interceptors: Optional[Sequence[ClientInterceptor]] = None,
+    options: Optional[Sequence[tuple[str, Any]]] = None,
 ) -> grpc.Channel:
+    """create a grpc channel
+
+    Args:
+        host_address: The host address of the gRPC server. If None, uses the default address (as defined in get_default_host_address above).
+        secure_channel: Whether to use a secure channel (TLS/SSL). Defaults to False.
+        interceptors: Optional sequence of client interceptors to apply to the channel.
+        options: Optional sequence of gRPC channel options as (key, value) tuples. Keys defined in https://grpc.github.io/grpc/core/group__grpc__arg__keys.html
+    """
     if host_address is None:
         host_address = get_default_host_address()
 
@@ -73,10 +94,20 @@ def get_grpc_channel(
             break
 
     # Create the base channel
-    if secure_channel:
-        channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials())
+    if options is not None:
+        # validate all options keys prefix starts with `grpc.`
+        validate_grpc_options(options)
+        if secure_channel:
+            channel = grpc.secure_channel(
+                host_address, grpc.ssl_channel_credentials(), options=options
+            )
+        else:
+            channel = grpc.insecure_channel(host_address, options=options)
     else:
-        channel = grpc.insecure_channel(host_address)
+        if secure_channel:
+            channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials())
+        else:
+            channel = grpc.insecure_channel(host_address)
 
     # Apply interceptors ONLY if they exist
     if interceptors:

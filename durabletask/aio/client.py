@@ -35,6 +35,7 @@ class AsyncTaskHubGrpcClient:
         log_formatter: Optional[logging.Formatter] = None,
         secure_channel: bool = False,
         interceptors: Optional[Sequence[ClientInterceptor]] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
     ):
         if interceptors is not None:
             interceptors = list(interceptors)
@@ -46,7 +47,10 @@ class AsyncTaskHubGrpcClient:
             interceptors = None
 
         channel = get_grpc_aio_channel(
-            host_address=host_address, secure_channel=secure_channel, interceptors=interceptors
+            host_address=host_address,
+            secure_channel=secure_channel,
+            interceptors=interceptors,
+            options=channel_options,
         )
         self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
