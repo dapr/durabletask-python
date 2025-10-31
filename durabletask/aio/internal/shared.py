@@ -1,7 +1,7 @@
 # Copyright (c) The Dapr Authors.
 # Licensed under the MIT License.
 
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Union
 
 import grpc
 from grpc import aio as grpc_aio
@@ -52,7 +52,9 @@ def get_grpc_aio_channel(
             break
 
     # channel interceptors/options
-    channel_kwargs: Dict[str, ChannelArgumentType | Sequence[ClientInterceptor]] = dict(interceptors=interceptors)
+    channel_kwargs: Dict[str, ChannelArgumentType | Sequence[ClientInterceptor]] = dict(
+        interceptors=interceptors
+    )
     if options is not None:
         validate_grpc_options(options)
         channel_kwargs["options"] = options
