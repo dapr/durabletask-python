@@ -1,15 +1,17 @@
 # Copyright (c) The Dapr Authors.
 # Licensed under the MIT License.
 
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import grpc
 from grpc import aio as grpc_aio
+from grpc.aio import ChannelArgumentType
 
 from durabletask.internal.shared import (
     INSECURE_PROTOCOLS,
     SECURE_PROTOCOLS,
     get_default_host_address,
+    validate_grpc_options,
 )
 
 ClientInterceptor = Union[
@@ -24,7 +26,7 @@ def get_grpc_aio_channel(
     host_address: Optional[str],
     secure_channel: bool = False,
     interceptors: Optional[Sequence[ClientInterceptor]] = None,
-    options: Optional[Sequence[tuple[str, Any]]] = None,
+    options: Optional[ChannelArgumentType] = None,
 ) -> grpc_aio.Channel:
     """create a grpc asyncio channel
 
@@ -50,13 +52,9 @@ def get_grpc_aio_channel(
             break
 
     # channel interceptors/options
-    channel_kwargs = dict(interceptors=interceptors)
+    channel_kwargs: Dict[str, ChannelArgumentType | Sequence[ClientInterceptor]] = dict(interceptors=interceptors)
     if options is not None:
-        # validate all options keys prefix starts with `grpc.`
-        if not all(key.startswith('grpc.') for key, _ in options):
-            raise ValueError(
-                f'All options keys must start with `grpc.`. Invalid options: {options}'
-            )
+        validate_grpc_options(options)
         channel_kwargs["options"] = options
 
     if secure_channel:

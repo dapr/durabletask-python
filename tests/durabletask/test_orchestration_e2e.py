@@ -30,7 +30,7 @@ def test_empty_orchestration():
         # set a custom max send length option
         c = client.TaskHubGrpcClient(
             channel_options=[
-                ('grpc.max_send_message_length', 1024 * 1024),  # 1MB
+                ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
             ]
         )
         id = c.schedule_new_orchestration(empty_orchestrator)
