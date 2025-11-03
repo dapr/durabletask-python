@@ -223,6 +223,7 @@ class TaskHubGrpcWorker:
         secure_channel: bool = False,
         interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
         concurrency_options: Optional[ConcurrencyOptions] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
     ):
         self._registry = _Registry()
         self._host_address = host_address if host_address else shared.get_default_host_address()
@@ -230,6 +231,7 @@ class TaskHubGrpcWorker:
         self._shutdown = Event()
         self._is_running = False
         self._secure_channel = secure_channel
+        self._channel_options = channel_options
 
         # Use provided concurrency options or create default ones
         self._concurrency_options = (
@@ -306,7 +308,7 @@ class TaskHubGrpcWorker:
             current_stub = None
             try:
                 current_channel = shared.get_grpc_channel(
-                    self._host_address, self._secure_channel, self._interceptors
+                    self._host_address, self._secure_channel, self._interceptors, options=self._channel_options
                 )
                 current_stub = stubs.TaskHubSidecarServiceStub(current_channel)
                 current_stub.Hello(empty_pb2.Empty())

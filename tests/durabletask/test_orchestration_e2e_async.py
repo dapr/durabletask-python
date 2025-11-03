@@ -13,7 +13,7 @@ from durabletask.aio.client import AsyncTaskHubGrpcClient
 from durabletask.client import OrchestrationStatus
 
 # NOTE: These tests assume a sidecar process is running. Example command:
-#       go install github.com/microsoft/durabletask-go@main
+#       go install github.com/dapr/durabletask-go@main
 #       durabletask-go --port 4001
 pytestmark = [pytest.mark.e2e, pytest.mark.asyncio]
 
@@ -25,12 +25,16 @@ async def test_empty_orchestration():
         nonlocal invoked  # don't do this in a real app!
         invoked = True
 
+    channel_options = [
+        ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
+    ]
+
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
 
-        c = AsyncTaskHubGrpcClient()
+        c = AsyncTaskHubGrpcClient(channel_options=channel_options)
         id = await c.schedule_new_orchestration(empty_orchestrator)
         state = await c.wait_for_orchestration_completion(id, timeout=30)
         await c.aclose()
@@ -58,13 +62,18 @@ async def test_activity_sequence():
             numbers.append(current)
         return numbers
 
+    channel_options =[
+            ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
+        ]
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(
+        channel_options=channel_options
+    ) as w:
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
 
-        client = AsyncTaskHubGrpcClient()
+        client = AsyncTaskHubGrpcClient(channel_options=channel_options)
         id = await client.schedule_new_orchestration(sequence, input=1)
         state = await client.wait_for_orchestration_completion(id, timeout=30)
         await client.aclose()

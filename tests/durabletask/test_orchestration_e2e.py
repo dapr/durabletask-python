@@ -11,7 +11,8 @@ import pytest
 from durabletask import client, task, worker
 
 # NOTE: These tests assume a sidecar process is running. Example command:
-#       docker run --name durabletask-sidecar -p 4001:4001 --env 'DURABLETASK_SIDECAR_LOGLEVEL=Debug' --rm cgillum/durabletask-sidecar:latest start --backend Emulator
+#       dapr init || true
+#       dapr run --app-id test-app --dapr-grpc-port  4001
 pytestmark = pytest.mark.e2e
 
 
@@ -22,16 +23,18 @@ def test_empty_orchestration():
         nonlocal invoked  # don't do this in a real app!
         invoked = True
 
+    channel_options = [
+        ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
+    ]
+
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
 
         # set a custom max send length option
         c = client.TaskHubGrpcClient(
-            channel_options=[
-                ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
-            ]
+            channel_options=channel_options
         )
         id = c.schedule_new_orchestration(empty_orchestrator)
         state = c.wait_for_orchestration_completion(id, timeout=30)
