@@ -1,7 +1,7 @@
 # Copyright (c) The Dapr Authors.
 # Licensed under the MIT License.
 
-from typing import Dict, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 import grpc
 from grpc import aio as grpc_aio
@@ -51,19 +51,16 @@ def get_grpc_aio_channel(
             host_address = host_address[len(protocol) :]
             break
 
-    # channel interceptors/options
-    channel_kwargs: Dict[str, ChannelArgumentType | Sequence[ClientInterceptor]] = dict(
-        interceptors=interceptors
-    )
     if options is not None:
         validate_grpc_options(options)
-        channel_kwargs["options"] = options
 
     if secure_channel:
         channel = grpc_aio.secure_channel(
-            host_address, grpc.ssl_channel_credentials(), **channel_kwargs
+            host_address, grpc.ssl_channel_credentials(), interceptors=interceptors, options=options
         )
     else:
-        channel = grpc_aio.insecure_channel(host_address, **channel_kwargs)
+        channel = grpc_aio.insecure_channel(
+            host_address, interceptors=interceptors, options=options
+        )
 
     return channel

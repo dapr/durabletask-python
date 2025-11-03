@@ -97,17 +97,11 @@ def get_grpc_channel(
     if options is not None:
         # validate all options keys prefix starts with `grpc.`
         validate_grpc_options(options)
-        if secure_channel:
-            channel = grpc.secure_channel(
-                host_address, grpc.ssl_channel_credentials(), options=options
-            )
-        else:
-            channel = grpc.insecure_channel(host_address, options=options)
+
+    if secure_channel:
+        channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials(), options=options)
     else:
-        if secure_channel:
-            channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials())
-        else:
-            channel = grpc.insecure_channel(host_address)
+        channel = grpc.insecure_channel(host_address, options=options)
 
     # Apply interceptors ONLY if they exist
     if interceptors:
