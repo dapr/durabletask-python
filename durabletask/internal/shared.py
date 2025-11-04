@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from typing import Any, Optional, Sequence, Union
 
 import grpc
-from grpc.aio import ChannelArgumentType
 
 ClientInterceptor = Union[
     grpc.UnaryUnaryClientInterceptor,
