@@ -308,7 +308,10 @@ class TaskHubGrpcWorker:
             current_stub = None
             try:
                 current_channel = shared.get_grpc_channel(
-                    self._host_address, self._secure_channel, self._interceptors, options=self._channel_options
+                    self._host_address,
+                    self._secure_channel,
+                    self._interceptors,
+                    options=self._channel_options,
                 )
                 current_stub = stubs.TaskHubSidecarServiceStub(current_channel)
                 current_stub.Hello(empty_pb2.Empty())

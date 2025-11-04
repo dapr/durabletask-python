@@ -33,9 +33,7 @@ def test_empty_orchestration():
         w.start()
 
         # set a custom max send length option
-        c = client.TaskHubGrpcClient(
-            channel_options=channel_options
-        )
+        c = client.TaskHubGrpcClient(channel_options=channel_options)
         id = c.schedule_new_orchestration(empty_orchestrator)
         state = c.wait_for_orchestration_completion(id, timeout=30)
 

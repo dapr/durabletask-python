@@ -11,7 +11,6 @@ from durabletask.internal.shared import (
     INSECURE_PROTOCOLS,
     SECURE_PROTOCOLS,
     get_default_host_address,
-    validate_grpc_options,
 )
 
 ClientInterceptor = Union[
@@ -50,9 +49,6 @@ def get_grpc_aio_channel(
             secure_channel = False
             host_address = host_address[len(protocol) :]
             break
-
-    if options is not None:
-        validate_grpc_options(options)
 
     if secure_channel:
         channel = grpc_aio.secure_channel(

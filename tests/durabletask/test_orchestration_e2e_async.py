@@ -62,13 +62,11 @@ async def test_activity_sequence():
             numbers.append(current)
         return numbers
 
-    channel_options =[
-            ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
-        ]
+    channel_options = [
+        ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
+    ]
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker(
-        channel_options=channel_options
-    ) as w:
+    with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
