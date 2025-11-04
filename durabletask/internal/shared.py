@@ -51,17 +51,6 @@ def get_default_host_address() -> str:
     return "localhost:4001"
 
 
-def validate_grpc_options(options: ChannelArgumentType):
-    """Validate that all gRPC options are valid. Mainly checking keys. Values can be string, int, float, bool and pointer"""
-    for key, value in options:
-        if not isinstance(key, str):
-            raise ValueError(f"gRPC option key must be a string. Invalid key: {key}")
-        if not all(key.startswith("grpc.") for key, _ in options):
-            raise ValueError(
-                f"All options keys must start with `grpc.`. Invalid options: {options}"
-            )
-
-
 def get_grpc_channel(
     host_address: Optional[str],
     secure_channel: bool = False,
@@ -92,11 +81,6 @@ def get_grpc_channel(
             # remove the protocol from the host name
             host_address = host_address[len(protocol) :]
             break
-
-    # Create the base channel
-    if options is not None:
-        # validate all options keys prefix starts with `grpc.`
-        validate_grpc_options(options)
 
     if secure_channel:
         channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials(), options=options)
