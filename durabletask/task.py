@@ -322,6 +322,8 @@ class WhenAllTask(CompositeTask[list[T]]):
             # The order of the result MUST match the order of the tasks provided to the constructor.
             self._result = [task.get_result() for task in self._tasks]
             self._is_complete = True
+            if self._parent is not None:
+                self._parent.on_child_completed(self)
 
     def get_completed_tasks(self) -> int:
         return self._completed_tasks
@@ -423,6 +425,8 @@ class WhenAnyTask(CompositeTask[Task]):
         if not self.is_complete:
             self._is_complete = True
             self._result = task
+            if self._parent is not None:
+                self._parent.on_child_completed(self)
 
 
 def when_all(tasks: list[Task[T]]) -> WhenAllTask[T]:
