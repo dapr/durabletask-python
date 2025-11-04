@@ -120,3 +120,23 @@ def test_grpc_channel_with_host_name_protocol_stripping():
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
         assert "options" in kwargs and kwargs["options"] is None
+
+
+def test_sync_channel_passes_base_options_and_max_lengths():
+    base_options = [
+        ("grpc.max_send_message_length", 1234),
+        ("grpc.max_receive_message_length", 5678),
+        ("grpc.primary_user_agent", "durabletask-tests"),
+    ]
+    with patch("grpc.insecure_channel") as mock_channel:
+        get_grpc_channel(HOST_ADDRESS, False, options=base_options)
+        # Ensure called with options kwarg
+        assert mock_channel.call_count == 1
+        args, kwargs = mock_channel.call_args
+        assert args[0] == HOST_ADDRESS
+        assert "options" in kwargs
+        opts = kwargs["options"]
+        # Check our base options made it through
+        assert ("grpc.max_send_message_length", 1234) in opts
+        assert ("grpc.max_receive_message_length", 5678) in opts
+        assert ("grpc.primary_user_agent", "durabletask-tests") in opts

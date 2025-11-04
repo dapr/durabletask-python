@@ -149,3 +149,23 @@ def test_async_client_construct_with_metadata():
         interceptors = kwargs["interceptors"]
         assert isinstance(interceptors[0], DefaultClientInterceptorImpl)
         assert interceptors[0]._metadata == METADATA
+
+
+def test_aio_channel_passes_base_options_and_max_lengths():
+    base_options = [
+        ("grpc.max_send_message_length", 4321),
+        ("grpc.max_receive_message_length", 8765),
+        ("grpc.primary_user_agent", "durabletask-aio-tests"),
+    ]
+    with patch("durabletask.aio.internal.shared.grpc_aio.insecure_channel") as mock_channel:
+        get_grpc_aio_channel(HOST_ADDRESS, False, options=base_options)
+        # Ensure called with options kwarg
+        assert mock_channel.call_count == 1
+        args, kwargs = mock_channel.call_args
+        assert args[0] == HOST_ADDRESS
+        assert "options" in kwargs
+        opts = kwargs["options"]
+        # Check our base options made it through
+        assert ("grpc.max_send_message_length", 4321) in opts
+        assert ("grpc.max_receive_message_length", 8765) in opts
+        assert ("grpc.primary_user_agent", "durabletask-aio-tests") in opts
