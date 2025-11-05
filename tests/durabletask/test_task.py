@@ -60,9 +60,6 @@ def test_when_all_is_composable_with_when_any():
 
     assert any_task.is_complete
     assert all_task.is_complete
-
-    assert all_task.is_complete
-
     assert all_task.get_result() == [c2]
 
 
