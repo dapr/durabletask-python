@@ -9,6 +9,7 @@ from datetime import timedelta
 import pytest
 
 from durabletask import client, task, worker
+from durabletask.aio.client import OrchestrationStatus
 
 # NOTE: These tests assume a sidecar process is running. Example command:
 #       dapr init || true
@@ -42,7 +43,7 @@ def test_empty_orchestration():
     assert state.name == task.get_name(empty_orchestrator)
     assert state.instance_id == id
     assert state.failure_details is None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status is None
@@ -73,7 +74,7 @@ def test_activity_sequence():
     assert state is not None
     assert state.name == task.get_name(sequence)
     assert state.instance_id == id
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.failure_details is None
     assert state.serialized_input == json.dumps(1)
     assert state.serialized_output == json.dumps([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
@@ -117,7 +118,7 @@ def test_activity_error_handling():
     assert state is not None
     assert state.name == task.get_name(orchestrator)
     assert state.instance_id == id
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_output == json.dumps("Kah-BOOOOM!!!")
     assert state.failure_details is None
     assert state.serialized_custom_status is None
@@ -157,7 +158,7 @@ def test_sub_orchestration_fan_out():
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.failure_details is None
     assert activity_counter == 30
 
@@ -183,7 +184,7 @@ def test_wait_for_multiple_external_events():
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_output == json.dumps(["a", "b", "c"])
 
 
@@ -211,7 +212,7 @@ def test_wait_for_external_event_timeout(raise_event: bool):
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     if raise_event:
         assert state.serialized_output == json.dumps("approved")
     else:
@@ -235,11 +236,11 @@ def test_suspend_and_resume():
 
         # Suspend the orchestration and wait for it to go into the SUSPENDED state
         task_hub_client.suspend_orchestration(id)
-        while state.runtime_status == client.OrchestrationStatus.RUNNING:
+        while state.runtime_status == OrchestrationStatus.RUNNING:
             time.sleep(0.1)
             state = task_hub_client.get_orchestration_state(id)
             assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
+        assert state.runtime_status == OrchestrationStatus.SUSPENDED
 
         # Raise an event to the orchestration and confirm that it does NOT complete
         task_hub_client.raise_orchestration_event(id, "my_event", data=42)
@@ -253,7 +254,7 @@ def test_suspend_and_resume():
         task_hub_client.resume_orchestration(id)
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.runtime_status == OrchestrationStatus.COMPLETED
         assert state.serialized_output == json.dumps(42)
 
 
@@ -271,12 +272,12 @@ def test_terminate():
         id = task_hub_client.schedule_new_orchestration(orchestrator)
         state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.RUNNING
+        assert state.runtime_status == OrchestrationStatus.RUNNING
 
         task_hub_client.terminate_orchestration(id, output="some reason for termination")
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.TERMINATED
+        assert state.runtime_status == OrchestrationStatus.TERMINATED
         assert state.serialized_output == json.dumps("some reason for termination")
 
 
@@ -320,7 +321,7 @@ def test_terminate_recursive():
             metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
 
             assert metadata is not None
-            assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
+            assert metadata.runtime_status == OrchestrationStatus.TERMINATED
             assert metadata.serialized_output == f'"{output}"'
 
             time.sleep(delay_time)
@@ -365,7 +366,7 @@ def test_continue_as_new():
 
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.runtime_status == OrchestrationStatus.COMPLETED
         assert state.serialized_output == json.dumps(all_results)
         assert state.serialized_input == json.dumps(4)
         assert all_results == [1, 2, 3, 4, 5]
@@ -401,7 +402,7 @@ def test_continue_as_new_with_activity_e2e():
 
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+        assert state.runtime_status == OrchestrationStatus.COMPLETED
 
         output = json.loads(state.serialized_output)
         # Should have called activity 3 times with input values 1, 2, 3
@@ -459,7 +460,7 @@ def test_retry_policies():
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.FAILED
+        assert state.runtime_status == OrchestrationStatus.FAILED
         assert state.failure_details is not None
         assert state.failure_details.error_type == "TaskFailedError"
         assert state.failure_details.message.startswith("Sub-orchestration task #1 failed:")
@@ -500,7 +501,7 @@ def test_retry_timeout():
         id = task_hub_client.schedule_new_orchestration(mock_orchestrator)
         state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
         assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.FAILED
+        assert state.runtime_status == OrchestrationStatus.FAILED
         assert state.failure_details is not None
         assert state.failure_details.error_type == "TaskFailedError"
         assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
@@ -525,7 +526,7 @@ def test_custom_status():
     assert state.name == task.get_name(empty_orchestrator)
     assert state.instance_id == id
     assert state.failure_details is None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status == '"foobaz"'
