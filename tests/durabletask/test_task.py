@@ -77,11 +77,11 @@ def test_when_any_is_composable_with_when_all():
     assert not all_task2.is_complete
 
     c1.complete("one")
-    
+
     assert not any_task.is_complete
     assert not all_task1.is_complete
     assert not all_task2.is_complete
-    
+
     c2.complete("two")
 
     assert any_task.is_complete
