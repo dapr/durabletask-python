@@ -17,16 +17,16 @@ keywords = [
     "workflow"
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
 ]
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
 readme = "README.md"
 dependencies = [
     "grpcio",
-    "protobuf",
+    "protobuf>=6.31.1,<7.0.0", # follows grpcio generation version https://github.com/grpc/grpc/blob/v1.75.1/tools/distrib/python/grpcio_tools/setup.py
     "asyncio"
 ]
 
@@ -53,7 +53,6 @@ markers = [
 dev = [
     "pytest",
     "pytest-asyncio>=0.23",
-    "flake8==7.3.0",
     "tox>=4.0.0",
     "pytest-cov",
     "ruff",
@@ -63,23 +62,23 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py39" # TODO: update to py310 when we drop support for py39
+target-version = "py310" # TODO: update to py310 when we drop support for py39
 line-length = 100
-fix = true
 extend-exclude = [".github", "durabletask/internal/orchestrator_service_*.*"]
+
 [tool.ruff.lint]
 select = [
-    "E",  # pycodestyle errors
+    "I",  # isort
     "W",  # pycodestyle warnings
     "F",  # pyflakes
-    "C",  # flake8-comprehensions
-    "B",  # flake8-bugbear
-    "UP",  # pyupgrade
+
+    # TODO: Add those back progressively as we fix the issues
+    # "E",  # pycodestyle errors
+    # "C",  # flake8-comprehensions
+    # "B",  # flake8-bugbear
+    # "UP",  # pyupgrade
 ]
-ignore = [
-  # Undefined name {name}
-  "F821",
-]
+
 [tool.ruff.format]
-# follow upstream quote-style instead of python-sdk to reduce diff
+# follow upstream quote-style instead of dapr/python-sdk to reduce diff
 quote-style = "double"

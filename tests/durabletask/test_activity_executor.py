@@ -77,24 +77,6 @@ def test_activity_not_registered():
     assert "Bogus" in str(caught_exception)
 
 
-def test_activity_attempt_temp_hack_no_effect_in_direct_executor():
-    """
-    Temporary attempt hack is applied by worker scheduling path, not direct executor calls.
-    Direct executor usage should leave ctx.attempt as None.
-    """
-
-    def probe_attempt(ctx: task.ActivityContext, _):
-        return {"attempt": ctx.attempt}
-
-    executor, name = _get_activity_executor(probe_attempt)
-    # Provide a JSON-encoded null payload to get a valid StringValue in executor path
-    result = executor.execute(TEST_INSTANCE_ID, name, TEST_TASK_ID, json.dumps(None))
-    assert result is not None
-    parsed = json.loads(result)
-    assert isinstance(parsed, dict)
-    assert parsed.get("attempt") is None
-
-
 def _get_activity_executor(fn: task.Activity) -> Tuple[worker._ActivityExecutor, str]:
     registry = worker._Registry()
     name = registry.add_activity(fn)

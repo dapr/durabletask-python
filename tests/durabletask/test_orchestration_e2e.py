@@ -12,7 +12,8 @@ import pytest
 from durabletask import client, task, worker
 
 # NOTE: These tests assume a sidecar process is running. Example command:
-#       docker run --name durabletask-sidecar -p 4001:4001 --env 'DURABLETASK_SIDECAR_LOGLEVEL=Debug' --rm cgillum/durabletask-sidecar:latest start --backend Emulator
+#       dapr init || true
+#       dapr run --app-id test-app --dapr-grpc-port  4001
 pytestmark = pytest.mark.e2e
 
 
@@ -49,15 +50,20 @@ def test_empty_orchestration():
         nonlocal invoked  # don't do this in a real app!
         invoked = True
 
+    channel_options = [
+        ("grpc.max_send_message_length", 1024 * 1024),  # 1MB
+    ]
+
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
         w.wait_for_ready(timeout=10)
 
-        with client.TaskHubGrpcClient() as c:
-            id = c.schedule_new_orchestration(empty_orchestrator)
-            state = c.wait_for_orchestration_completion(id, timeout=30)
+        # set a custom max send length option
+        c = client.TaskHubGrpcClient(channel_options=channel_options)
+        id = c.schedule_new_orchestration(empty_orchestrator)
+        state = c.wait_for_orchestration_completion(id, timeout=30)
 
     assert invoked
     assert state is not None
@@ -348,9 +354,7 @@ def test_terminate_recursive():
                     instance_id, output=output, recursive=recurse
                 )
 
-                metadata = task_hub_client.wait_for_orchestration_completion(
-                    instance_id, timeout=30
-                )
+            metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
 
                 assert metadata is not None
                 assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
@@ -358,14 +362,14 @@ def test_terminate_recursive():
 
                 time.sleep(delay_time)
 
-                if recurse:
-                    assert activity_counter == 0, (
-                        "Activity should not have executed with recursive termination"
-                    )
-                else:
-                    assert activity_counter == 5, (
-                        "Activity should have executed without recursive termination"
-                    )
+            if recurse:
+                assert activity_counter == 0, (
+                    "Activity should not have executed with recursive termination"
+                )
+            else:
+                assert activity_counter == 5, (
+                    "Activity should have executed without recursive termination"
+                )
 
 
 def test_continue_as_new():
@@ -429,7 +433,6 @@ def test_continue_as_new_with_activity_e2e():
         w.add_activity(double_activity)
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
@@ -439,93 +442,10 @@ def test_continue_as_new_with_activity_e2e():
         assert state.runtime_status == client.OrchestrationStatus.COMPLETED
 
         output = json.loads(state.serialized_output)
-        # Should have called activity 3 times with counter values 1, 2, 3
+        # Should have called activity 3 times with input values 1, 2, 3
         assert activity_results == [2, 4, 6]
         assert output["counter"] == 3
         assert output["processed"] == 6
-
-
-def test_async_continue_as_new_e2e():
-    """E2E test for async continue_as_new with external events."""
-    from durabletask.aio import AsyncWorkflowContext
-
-    all_results = []
-
-    async def async_orchestrator(ctx: AsyncWorkflowContext, input: int):
-        result = await ctx.wait_for_external_event("my_event")
-        if not ctx.is_replaying:
-            # NOTE: Real orchestrations should never interact with nonlocal variables like this.
-            nonlocal all_results  # noqa: F824
-            all_results.append(result)
-
-        if len(all_results) <= 4:
-            ctx.continue_as_new(max(all_results), save_events=True)
-        else:
-            return all_results
-
-    # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
-        w.add_orchestrator(async_orchestrator)
-        w.start()
-        w.wait_for_ready(timeout=10)
-
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(async_orchestrator, input=0)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=1)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=2)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=3)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=4)
-        task_hub_client.raise_orchestration_event(id, "my_event", data=5)
-
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-        assert state.serialized_output == json.dumps(all_results)
-        assert state.serialized_input == json.dumps(4)
-        assert all_results == [1, 2, 3, 4, 5]
-
-
-def test_async_continue_as_new_with_activity_e2e():
-    """E2E test for async continue_as_new with activities."""
-    from durabletask.aio import AsyncWorkflowContext
-
-    activity_results = []
-
-    def double_activity(ctx: task.ActivityContext, value: int) -> int:
-        """Activity that doubles the value."""
-        result = value * 2
-        activity_results.append(result)
-        return result
-
-    async def async_orchestrator(ctx: AsyncWorkflowContext, counter: int):
-        # Call activity to process the counter
-        processed = await ctx.call_activity(double_activity, input=counter)
-
-        # Continue as new up to 3 times
-        if counter < 3:
-            ctx.continue_as_new(counter + 1, save_events=False)
-        else:
-            return {"counter": counter, "processed": processed, "all_results": activity_results}
-
-    with worker.TaskHubGrpcWorker() as w:
-        w.add_activity(double_activity)
-        w.add_orchestrator(async_orchestrator)
-        w.start()
-        w.wait_for_ready(timeout=10)
-
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(async_orchestrator, input=1)
-
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-
-    assert state is not None
-    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-
-    output = json.loads(state.serialized_output)
-    # Should have called activity 3 times with counter values 1, 2, 3
-    assert activity_results == [2, 4, 6]
-    assert output["counter"] == 3
-    assert output["processed"] == 6
 
 
 # NOTE: This test fails when running against durabletask-go with sqlite because the sqlite backend does not yet

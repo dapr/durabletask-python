@@ -57,6 +57,7 @@ class OrchestrationState:
                 self.failure_details,
             )
 
+
     def to_json(self) -> Any:
         """Parse serialized_output as JSON and return the resulting object.
 
@@ -118,7 +119,7 @@ class TaskHubGrpcClient:
         log_formatter: Optional[logging.Formatter] = None,
         secure_channel: bool = False,
         interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
-        options: Optional[Sequence[tuple[str, Any]]] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
     ):
         # If the caller provided metadata, we need to create a new interceptor for it and
         # add it to the list of interceptors.
@@ -135,7 +136,7 @@ class TaskHubGrpcClient:
             host_address=host_address,
             secure_channel=secure_channel,
             interceptors=interceptors,
-            options=options,
+            options=channel_options,
         )
         self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)

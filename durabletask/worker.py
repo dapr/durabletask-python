@@ -74,8 +74,8 @@ class ConcurrencyOptions:
 
 
 class _Registry:
-    orchestrators: Dict[str, task.Orchestrator]
-    activities: Dict[str, task.Activity]
+    orchestrators: dict[str, task.Orchestrator]
+    activities: dict[str, task.Activity]
 
     def __init__(self):
         self.orchestrators = {}
@@ -261,6 +261,7 @@ class TaskHubGrpcWorker:
         secure_channel: bool = False,
         interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
         concurrency_options: Optional[ConcurrencyOptions] = None,
+        channel_options: Optional[Sequence[tuple[str, Any]]] = None,
     ):
         self._registry = _Registry()
         self._host_address = host_address if host_address else shared.get_default_host_address()
@@ -268,6 +269,7 @@ class TaskHubGrpcWorker:
         self._shutdown = Event()
         self._is_running = False
         self._secure_channel = secure_channel
+        self._channel_options = channel_options
         # Track in-flight activity executions for graceful draining
         import threading as _threading
 
@@ -401,7 +403,10 @@ class TaskHubGrpcWorker:
             current_stub = None
             try:
                 current_channel = shared.get_grpc_channel(
-                    self._host_address, self._secure_channel, self._interceptors
+                    self._host_address,
+                    self._secure_channel,
+                    self._interceptors,
+                    options=self._channel_options,
                 )
                 current_stub = stubs.TaskHubSidecarServiceStub(current_channel)
                 current_stub.Hello(empty_pb2.Empty())
@@ -781,15 +786,15 @@ class _RuntimeOrchestrationContext(task.OrchestrationContext):
         self._is_suspended = False
         self._is_complete = False
         self._result = None
-        self._pending_actions: Dict[int, pb.OrchestratorAction] = {}
-        self._pending_tasks: Dict[int, task.CompletableTask] = {}
+        self._pending_actions: dict[int, pb.OrchestratorAction] = {}
+        self._pending_tasks: dict[int, task.CompletableTask] = {}
         self._sequence_number = 0
         self._current_utc_datetime = datetime(1000, 1, 1)
         self._instance_id = instance_id
         self._app_id = None
         self._completion_status: Optional[pb.OrchestrationStatus] = None
-        self._received_events: Dict[str, list[Any]] = {}
-        self._pending_events: Dict[str, list[task.CompletableTask]] = {}
+        self._received_events: dict[str, list[Any]] = {}
+        self._pending_events: dict[str, list[task.CompletableTask]] = {}
         self._new_input: Optional[Any] = None
         self._save_events = False
         self._encoded_custom_status: Optional[str] = None
@@ -1706,7 +1711,7 @@ def _get_new_event_summary(new_events: Sequence[pb.HistoryEvent]) -> str:
     elif len(new_events) == 1:
         return f"[{new_events[0].WhichOneof('eventType')}]"
     else:
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for event in new_events:
             event_type = event.WhichOneof("eventType")
             counts[event_type] = counts.get(event_type, 0) + 1
@@ -1720,7 +1725,7 @@ def _get_action_summary(new_actions: Sequence[pb.OrchestratorAction]) -> str:
     elif len(new_actions) == 1:
         return f"[{new_actions[0].WhichOneof('orchestratorActionType')}]"
     else:
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for action in new_actions:
             action_type = action.WhichOneof("orchestratorActionType")
             counts[action_type] = counts.get(action_type, 0) + 1

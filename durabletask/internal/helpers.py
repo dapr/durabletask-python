@@ -12,9 +12,7 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 # TODO: The new_xxx_event methods are only used by test code and should be moved elsewhere
 
 
-def new_orchestrator_started_event(
-    timestamp: Optional[datetime] = None,
-) -> pb.HistoryEvent:
+def new_orchestrator_started_event(timestamp: Optional[datetime] = None) -> pb.HistoryEvent:
     ts = timestamp_pb2.Timestamp()
     if timestamp is not None:
         ts.FromDatetime(timestamp)
@@ -149,9 +147,7 @@ def new_suspend_event() -> pb.HistoryEvent:
 
 def new_resume_event() -> pb.HistoryEvent:
     return pb.HistoryEvent(
-        eventId=-1,
-        timestamp=timestamp_pb2.Timestamp(),
-        executionResumed=pb.ExecutionResumedEvent(),
+        eventId=-1, timestamp=timestamp_pb2.Timestamp(), executionResumed=pb.ExecutionResumedEvent()
     )
 
 

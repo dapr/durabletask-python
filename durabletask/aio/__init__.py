@@ -1,10 +1,3 @@
-"""Async workflow primitives (aio namespace).
-
-This package contains the async implementation previously under
-`durabletask.asyncio`, now moved to `durabletask.aio` for naming
-consistency.
-"""
-
 # Deterministic utilities
 from durabletask.deterministic import (
     DeterminismSeed,
@@ -53,7 +46,10 @@ from .sandbox import (
     sandbox_strict,
 )
 
+from .client import AsyncTaskHubGrpcClient
+
 __all__ = [
+    "AsyncTaskHubGrpcClient",
     # Core classes
     "AsyncWorkflowContext",
     "WorkflowInfo",

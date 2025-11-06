@@ -6,32 +6,6 @@
 
 This repo contains a Python client SDK for use with the [Durable Task Framework for Go](https://github.com/microsoft/durabletask-go) and [Dapr Workflow](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-overview/). With this SDK, you can define, schedule, and manage durable orchestrations using ordinary Python code.
 
-> **🚀 Enhanced Async Features**: This fork includes comprehensive async workflow enhancements with advanced error handling, non-determinism detection, timeout support, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md) for details.
-
-## Quick Start - Async Workflows
-
-For async workflow development, use the new `durabletask.aio` package:
-
-```python
-from durabletask.aio import AsyncWorkflowContext
-from durabletask.worker import TaskHubGrpcWorker
-
-async def my_workflow(ctx: AsyncWorkflowContext, name: str) -> str:
-    result = await ctx.call_activity(say_hello, input=name)
-    await ctx.sleep(1.0)
-    return f"Workflow completed: {result}"
-
-def say_hello(ctx, name: str) -> str:
-    return f"Hello, {name}!"
-
-# Register and run
-with TaskHubGrpcWorker() as worker:
-    worker.add_activity(say_hello)
-    worker.add_orchestrator(my_workflow)
-    worker.start()
-    # ... schedule workflows with client
-```
-
 ⚠️ **This SDK is currently under active development and is not yet ready for production use.** ⚠️
 
 > Note that this project is **not** currently affiliated with the [Durable Functions](https://docs.microsoft.com/azure/azure-functions/durable/durable-functions-overview) project for Azure Functions. If you are looking for a Python SDK for Durable Functions, please see [this repo](https://github.com/Azure/azure-functions-durable-python).
@@ -181,13 +155,6 @@ python3 -m pip install .
 
 See the [examples](./examples) directory for a list of sample orchestrations and instructions on how to run them.
 
-**Enhanced Async Examples:**
-- `async_activity_sequence.py` - Updated to use new `durabletask.aio` package
-- `async_fanout_fanin.py` - Updated to use new `durabletask.aio` package  
-- `async_enhanced_features.py` - Comprehensive demo of all enhanced features
-- `async_non_determinism_demo.py` - Non-determinism detection demonstration
-- See [ASYNC_ENHANCEMENTS.md](./durabletask/aio/ASYNCIO_ENHANCEMENTS.md) for detailed examples and usage patterns
-
 ## Development
 
 The following is more information about how to develop this project. Note that development commands require that `make` is installed on your local machine. If you're using Windows, you can install `make` using [Chocolatey](https://chocolatey.org/) or use WSL.
@@ -205,7 +172,7 @@ This will download the `orchestrator_service.proto` from the `microsoft/durablet
 
 ### Running unit tests
 
-Unit tests can be run using the following command from the project root. 
+Unit tests can be run using the following command from the project root.
 Unit tests _don't_ require a sidecar process to be running.
 
 To run on a specific python version (eg: 3.11), run the following command from the project root:
@@ -216,7 +183,7 @@ tox -e py311
 
 ### Running E2E tests
 
-The E2E (end-to-end) tests require a sidecar process to be running. 
+The E2E (end-to-end) tests require a sidecar process to be running.
 
 For non-multi app activities test you can use the Durable Task test sidecar using the following command:
 
@@ -257,53 +224,16 @@ export DAPR_GRPC_HOST=localhost
 export DAPR_GRPC_PORT=50001
 ```
 
-#### GRPC Keepalive Configuration
-
-Configure GRPC keepalive settings to maintain long-lived connections:
-
-- `DAPR_GRPC_KEEPALIVE_ENABLED` - Enable keepalive (default: `false`)
-- `DAPR_GRPC_KEEPALIVE_TIME_MS` - Keepalive time in milliseconds (default: `120000`)
-- `DAPR_GRPC_KEEPALIVE_TIMEOUT_MS` - Keepalive timeout in milliseconds (default: `20000`)
-- `DAPR_GRPC_KEEPALIVE_PERMIT_WITHOUT_CALLS` - Permit keepalive without active calls (default: `false`)
-
-Example:
-
-```sh
-export DAPR_GRPC_KEEPALIVE_ENABLED=true
-export DAPR_GRPC_KEEPALIVE_TIME_MS=60000
-export DAPR_GRPC_KEEPALIVE_TIMEOUT_MS=10000
-```
-
-#### GRPC Retry Configuration
-
-Configure automatic retry behavior for transient failures:
-
-- `DAPR_GRPC_RETRY_ENABLED` - Enable automatic retries (default: `false`)
-- `DAPR_GRPC_RETRY_MAX_ATTEMPTS` - Maximum retry attempts (default: `4`)
-- `DAPR_GRPC_RETRY_INITIAL_BACKOFF_MS` - Initial backoff in milliseconds (default: `100`)
-- `DAPR_GRPC_RETRY_MAX_BACKOFF_MS` - Maximum backoff in milliseconds (default: `1000`)
-- `DAPR_GRPC_RETRY_BACKOFF_MULTIPLIER` - Backoff multiplier (default: `2.0`)
-- `DAPR_GRPC_RETRY_CODES` - Comma-separated status codes to retry (default: `UNAVAILABLE,DEADLINE_EXCEEDED`)
-
-Example:
-
-```sh
-export DAPR_GRPC_RETRY_ENABLED=true
-export DAPR_GRPC_RETRY_MAX_ATTEMPTS=5
-export DAPR_GRPC_RETRY_INITIAL_BACKOFF_MS=200
-```
 
 #### Async Workflow Configuration
 
 Configure async workflow behavior and debugging:
 
-- `DAPR_WF_DEBUG` or `DT_DEBUG` - Enable debug mode for workflows (set to `true`)
 - `DAPR_WF_DISABLE_DETECTION` - Disable non-determinism detection (set to `true`)
 
 Example:
 
 ```sh
-export DAPR_WF_DEBUG=true
 export DAPR_WF_DISABLE_DETECTION=false
 ```
 
@@ -406,7 +336,7 @@ try:
 except Exception as e:
     # handle failure branch
     ...
-```
+```    
 
 Or capture with gather:
 
@@ -415,6 +345,7 @@ res = await ctx.gather(ctx.call_activity("a"), return_exceptions=True)
 if isinstance(res[0], Exception):
     ...
 ```
+
 
 - Sub-orchestrations (function reference or registered name):
 ```python
@@ -425,27 +356,6 @@ out = await ctx.call_sub_orchestrator(child_fn, input=payload)
 - Deterministic utilities:
 ```python
 now = ctx.now(); rid = ctx.random().random(); uid = ctx.uuid4()
-```
-
-- Workflow metadata and info:
-```python
-# Read-only info snapshot (Temporal-style convenience)
-info = ctx.info
-print(f"Workflow: {info.workflow_name}, Instance: {info.instance_id}")
-print(f"Replaying: {info.is_replaying}, Suspended: {info.is_suspended}")
-
-# Or access properties directly
-instance_id = ctx.instance_id
-is_replaying = ctx.is_replaying
-is_suspended = ctx.is_suspended
-workflow_name = ctx.workflow_name
-parent_instance_id = ctx.parent_instance_id  # for sub-orchestrators
-
-# Execution info (internal metadata if provided by sidecar)
-exec_info = ctx.execution_info
-
-# Tracing span IDs
-span_id = ctx.orchestration_span_id  # or ctx.workflow_span_id (alias)
 ```
 
 - Workflow metadata/headers (async only for now):
@@ -532,8 +442,8 @@ contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additio
 
 ## Trademarks
 
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft 
-trademarks or logos is subject to and must follow 
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.

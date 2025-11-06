@@ -355,6 +355,10 @@ class WhenAllTask(CompositeTask[list[T]]):
         super().__init__(tasks)
         self._completed_tasks = 0
         self._failed_tasks = 0
+        # If there are no child tasks, this composite should complete immediately
+        if len(self._tasks) == 0:
+            self._result = []  # type: ignore[assignment]
+            self._is_complete = True
 
     @property
     def pending_tasks(self) -> int:
@@ -378,6 +382,7 @@ class WhenAllTask(CompositeTask[list[T]]):
 
 
 class CompletableTask(Task[T]):
+    def __init__(self):
     def __init__(self) -> None:
         super().__init__()
         self._retryable_parent: Optional["RetryableTask[Any]"] = None
@@ -463,6 +468,10 @@ class WhenAnyTask(CompositeTask, Generic[T]):
 
     def __init__(self, tasks: list["Task[Any]"]):
         super().__init__(tasks)
+        # If there are no child tasks, complete immediately with an empty result
+        if len(self._tasks) == 0:
+            self._result = []  # type: ignore[assignment]
+            self._is_complete = True
 
     def on_child_completed(self, task: "Task[Any]") -> None:
         # The first task to complete is the result of the WhenAnyTask.

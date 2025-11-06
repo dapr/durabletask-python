@@ -13,7 +13,8 @@ install:
 gen-proto:
 	curl -o durabletask/internal/orchestrator_service.proto https://raw.githubusercontent.com/dapr/durabletask-protobuf/refs/heads/main/protos/orchestrator_service.proto
 	curl -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/dapr/durabletask-protobuf/commits?path=protos/orchestrator_service.proto&sha=main&per_page=1" | jq -r '.[0].sha' > durabletask/internal/PROTO_SOURCE_COMMIT_HASH
-	pip install grpcio-tools==1.74.0
+	# NOTE: remember to check/update pyproject.toml protobuf version to follow https://github.com/grpc/grpc/blob/v{{VERSION GRPC IO TOOL BELLOW}}/tools/distrib/python/grpcio_tools/setup.py
+	pip install .[dev]
 	python3 -m grpc_tools.protoc --proto_path=.  --python_out=. --pyi_out=. --grpc_python_out=. ./durabletask/internal/orchestrator_service.proto
 	rm durabletask/internal/*.proto
 
