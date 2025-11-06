@@ -9,8 +9,7 @@ from datetime import timedelta
 import pytest
 
 from durabletask import task, worker
-from durabletask.aio.client import AsyncTaskHubGrpcClient
-from durabletask.client import OrchestrationStatus
+from durabletask.aio.client import AsyncTaskHubGrpcClient, OrchestrationStatus
 
 # NOTE: These tests assume a sidecar process is running. Example command:
 #       go install github.com/dapr/durabletask-go@main

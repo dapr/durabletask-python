@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,15 +22,15 @@ def test_wait_for_orchestration_start_timeout(timeout):
     response.orchestrationState.CopyFrom(state)
 
     c = TaskHubGrpcClient()
-    c._stub = Mock()
-    c._stub.WaitForInstanceStart.return_value = response
+    c._async_client._stub = AsyncMock()
+    c._async_client._stub.WaitForInstanceStart.return_value = response
 
     grpc_timeout = None if timeout is None else timeout
     c.wait_for_orchestration_start(instance_id, timeout=grpc_timeout)
 
     # Verify WaitForInstanceStart was called with timeout=None
-    c._stub.WaitForInstanceStart.assert_called_once()
-    _, kwargs = c._stub.WaitForInstanceStart.call_args
+    c._async_client._stub.WaitForInstanceStart.assert_called_once()
+    _, kwargs = c._async_client._stub.WaitForInstanceStart.call_args
     if timeout is None or timeout == 0:
         assert kwargs.get("timeout") is None
     else:
@@ -54,15 +54,15 @@ def test_wait_for_orchestration_completion_timeout(timeout):
     response.orchestrationState.CopyFrom(state)
 
     c = TaskHubGrpcClient()
-    c._stub = Mock()
-    c._stub.WaitForInstanceCompletion.return_value = response
+    c._async_client._stub = AsyncMock()
+    c._async_client._stub.WaitForInstanceCompletion.return_value = response
 
     grpc_timeout = None if timeout is None else timeout
     c.wait_for_orchestration_completion(instance_id, timeout=grpc_timeout)
 
     # Verify WaitForInstanceStart was called with timeout=None
-    c._stub.WaitForInstanceCompletion.assert_called_once()
-    _, kwargs = c._stub.WaitForInstanceCompletion.call_args
+    c._async_client._stub.WaitForInstanceCompletion.assert_called_once()
+    _, kwargs = c._async_client._stub.WaitForInstanceCompletion.call_args
     if timeout is None or timeout == 0:
         assert kwargs.get("timeout") is None
     else:
