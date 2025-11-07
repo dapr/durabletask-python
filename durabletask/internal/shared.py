@@ -102,7 +102,7 @@ def get_logger(
     # Add a default log handler if none is provided
     if log_handler is None:
         log_handler = logging.StreamHandler()
-        log_handler.setLevel(logging.INFO)
+        log_handler.setLevel(logging.DEBUG)
     logger.handlers.append(log_handler)
 
     # Set a default log formatter to our handler if none is provided
