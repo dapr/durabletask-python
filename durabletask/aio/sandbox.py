@@ -406,7 +406,7 @@ class _Sandbox(ContextDecorator):
                 base = getattr(self.async_ctx, "_base_ctx", None)
                 now_dt = getattr(base, "current_utc_datetime", None) if base is not None else None
         if now_dt is None:
-            now_dt = _datetime.datetime.utcfromtimestamp(0)
+            now_dt = _datetime.datetime.fromtimestamp(0, _datetime.timezone.utc)
         rng = deterministic_random(iid or "", now_dt)
         # Mark as deterministic so the detector can whitelist bound method calls
         try:

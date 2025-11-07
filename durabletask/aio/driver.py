@@ -160,6 +160,9 @@ class CoroutineOrchestratorRunner:
             except StopIteration as stop:
                 return stop.value
             except Exception as e:
+                # Re-raise NonRetryableError directly to preserve its type for the runtime
+                if isinstance(e, task.NonRetryableError):
+                    raise
                 raise AsyncWorkflowError(
                     f"Workflow failed during initialization: {e}",
                     workflow_name=self._workflow_name,
@@ -199,6 +202,15 @@ class CoroutineOrchestratorRunner:
                     except StopIteration as stop:
                         return stop.value
                     except Exception as e:
+                        # Check if this is a TaskFailedError wrapping a NonRetryableError
+                        if isinstance(e, task.TaskFailedError):
+                            details = e.details
+                            if details.error_type == "NonRetryableError":
+                                # Reconstruct NonRetryableError to preserve its type for the runtime
+                                raise task.NonRetryableError(details.message) from e
+                        # Re-raise NonRetryableError directly to preserve its type for the runtime
+                        if isinstance(e, task.NonRetryableError):
+                            raise
                         raise AsyncWorkflowError(
                             f"Workflow failed: {e}",
                             workflow_name=self._workflow_name,
@@ -231,6 +243,15 @@ class CoroutineOrchestratorRunner:
                         except StopIteration as stop:
                             return stop.value
                         except Exception as workflow_exc:
+                            # Check if this is a TaskFailedError wrapping a NonRetryableError
+                            if isinstance(workflow_exc, task.TaskFailedError):
+                                details = workflow_exc.details
+                                if details.error_type == "NonRetryableError":
+                                    # Reconstruct NonRetryableError to preserve its type for the runtime
+                                    raise task.NonRetryableError(details.message) from workflow_exc
+                            # Re-raise NonRetryableError directly to preserve its type for the runtime
+                            if isinstance(workflow_exc, task.NonRetryableError):
+                                raise
                             raise AsyncWorkflowError(
                                 f"Workflow failed: {workflow_exc}",
                                 workflow_name=self._workflow_name,
@@ -247,6 +268,15 @@ class CoroutineOrchestratorRunner:
                         except StopIteration as stop:
                             return stop.value
                         except Exception as workflow_exc:
+                            # Check if this is a TaskFailedError wrapping a NonRetryableError
+                            if isinstance(workflow_exc, task.TaskFailedError):
+                                details = workflow_exc.details
+                                if details.error_type == "NonRetryableError":
+                                    # Reconstruct NonRetryableError to preserve its type for the runtime
+                                    raise task.NonRetryableError(details.message) from workflow_exc
+                            # Re-raise NonRetryableError directly to preserve its type for the runtime
+                            if isinstance(workflow_exc, task.NonRetryableError):
+                                raise
                             raise AsyncWorkflowError(
                                 f"Workflow failed: {workflow_exc}",
                                 workflow_name=self._workflow_name,
@@ -277,6 +307,15 @@ class CoroutineOrchestratorRunner:
                     except StopIteration as stop:
                         return stop.value
                     except Exception as e:
+                        # Check if this is a TaskFailedError wrapping a NonRetryableError
+                        if isinstance(e, task.TaskFailedError):
+                            details = e.details
+                            if details.error_type == "NonRetryableError":
+                                # Reconstruct NonRetryableError to preserve its type for the runtime
+                                raise task.NonRetryableError(details.message) from e
+                        # Re-raise NonRetryableError directly to preserve its type for the runtime
+                        if isinstance(e, task.NonRetryableError):
+                            raise
                         raise AsyncWorkflowError(
                             f"Workflow failed: {e}",
                             workflow_name=self._workflow_name,

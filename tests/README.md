@@ -59,16 +59,16 @@ dapr init
 # Start Dapr sidecar for testing
 dapr run \
   --app-id durabletask-test \
-  --dapr-grpc-port 50001 \
+  --dapr-grpc-port 4001 \
   --dapr-http-port 3500 \
   --log-level debug \
-  --components-path ./dapr-components \
+  --resources-path ./examples/components \
   -- sleep 3600
 
 # Alternative: Minimal setup without components
 dapr run \
   --app-id durabletask-test \
-  --dapr-grpc-port 50001 \
+  --dapr-grpc-port 4001 \
   --log-level debug \
   -- sleep 3600
 ```
@@ -105,7 +105,7 @@ docker run --rm -d \
   daprio/daprd:latest \
   ./daprd \
   --app-id durabletask-test \
-  --dapr-grpc-port 50001 \
+  --dapr-grpc-port 4001 \
   --dapr-http-port 3500 \
   --log-level debug
 ```

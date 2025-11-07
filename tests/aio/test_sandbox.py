@@ -1622,7 +1622,7 @@ class TestPatchedFunctionsInWorkflow:
 
         async def workflow_with_datetime(ctx):
             now = datetime.datetime.now()
-            utcnow = datetime.datetime.utcnow()
+            utcnow = datetime.datetime.now(datetime.timezone.utc)
             now_tz = datetime.datetime.now(datetime.timezone.utc)
             return [now, utcnow, now_tz]
 
@@ -1666,7 +1666,7 @@ class TestPatchedFunctionsInWorkflow:
 
             # Test datetime
             results["now"] = datetime.datetime.now()
-            results["utcnow"] = datetime.datetime.utcnow()
+            results["utcnow"] = datetime.datetime.now(datetime.timezone.utc)
             results["now_tz"] = datetime.datetime.now(datetime.timezone.utc)
 
             return results
