@@ -3,7 +3,7 @@
 
 import json
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -1783,6 +1783,7 @@ def test_sub_orchestration_non_retryable_policy_type():
     assert complete_action.failureDetails.errorMessage.__contains__(
         "Sub-orchestration task #1 failed: boom"
     )
+
 
 def get_and_validate_single_complete_orchestration_action(
     actions: list[pb.OrchestratorAction],
