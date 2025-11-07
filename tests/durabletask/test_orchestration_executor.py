@@ -683,6 +683,7 @@ def test_nondeterminism_expected_activity_call_wrong_task_type():
 
 def test_nondeterminism_wrong_activity_name():
     """Tests the non-determinism detection when calling an activity with a name that differs from the name in the history"""
+
     def dummy_activity(ctx, _):
         pass
 

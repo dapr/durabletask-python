@@ -21,6 +21,7 @@ from .awaitables import (
     WhenAnyResultAwaitable,
     gather,
 )
+from .client import AsyncTaskHubGrpcClient
 
 # Compatibility protocol (core functionality only)
 from .compatibility import OrchestrationContextProtocol, ensure_compatibility
@@ -45,8 +46,6 @@ from .sandbox import (
     sandbox_scope,
     sandbox_strict,
 )
-
-from .client import AsyncTaskHubGrpcClient
 
 __all__ = [
     "AsyncTaskHubGrpcClient",

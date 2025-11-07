@@ -26,6 +26,9 @@ from durabletask.deterministic import deterministic_random, deterministic_uuid4
 
 from .errors import NonDeterminismWarning, SandboxViolationError
 
+# Capture environment variable at module load to avoid triggering non-determinism detection
+_DISABLE_DETECTION = os.getenv("DAPR_WF_DISABLE_DETECTION") == "true"
+
 
 class SandboxMode(str, Enum):
     """Sandbox mode options.
@@ -295,8 +298,8 @@ class _Sandbox(ContextDecorator):
 
         # Expose originals/mode to the async workflow context for controlled unsafe access
         try:
-            setattr(self.async_ctx, "_sandbox_originals", dict(self.originals))
-            setattr(self.async_ctx, "_sandbox_mode", self.mode)
+            self.async_ctx._sandbox_originals = dict(self.originals)
+            self.async_ctx._sandbox_mode = self.mode
         except Exception:
             # Context may not support attribute assignment; ignore
             pass
@@ -398,7 +401,7 @@ class _Sandbox(ContextDecorator):
                 now_dt = None
         if now_dt is None:
             if hasattr(self.async_ctx, "current_utc_datetime"):
-                now_dt = getattr(self.async_ctx, "current_utc_datetime")
+                now_dt = self.async_ctx.current_utc_datetime
             else:
                 base = getattr(self.async_ctx, "_base_ctx", None)
                 now_dt = getattr(base, "current_utc_datetime", None) if base is not None else None
@@ -407,7 +410,7 @@ class _Sandbox(ContextDecorator):
         rng = deterministic_random(iid or "", now_dt)
         # Mark as deterministic so the detector can whitelist bound method calls
         try:
-            setattr(rng, "_dt_deterministic", True)
+            rng._dt_deterministic = True
         except Exception:
             pass
 
@@ -581,10 +584,10 @@ class _Sandbox(ContextDecorator):
                     else:
                         wf_group = wf_items
                     wf_results: list[Any] = await WhenAllAwaitable(wf_group)  # type: ignore[assignment]
-                    for pos, val in zip(wf_indices, wf_results):
+                    for pos, val in zip(wf_indices, wf_results, strict=False):
                         merged[pos] = val
                 # Then process native sequentially, honoring return_exceptions
-                for pos, it in zip(native_indices, native_items):
+                for pos, it in zip(native_indices, native_items, strict=False):
                     try:
                         merged[pos] = await it
                     except Exception as e:  # noqa: BLE001
@@ -737,8 +740,8 @@ def sandbox_scope(async_ctx: Any, mode: Union[str, SandboxMode]) -> Any:
     if mode_str not in valid_modes:
         raise ValueError(f"Invalid sandbox mode '{mode_str}'. Must be one of {valid_modes}")
 
-    # Check for global disable
-    if mode_str != "off" and os.getenv("DAPR_WF_DISABLE_DETECTION") == "true":
+    # Check for global disable (captured at module load to avoid non-determinism detection)
+    if mode_str != "off" and _DISABLE_DETECTION:
         mode_str = "off"
 
     with _Sandbox(async_ctx, mode_str):

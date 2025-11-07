@@ -382,7 +382,6 @@ class WhenAllTask(CompositeTask[list[T]]):
 
 
 class CompletableTask(Task[T]):
-    def __init__(self):
     def __init__(self) -> None:
         super().__init__()
         self._retryable_parent: Optional["RetryableTask[Any]"] = None

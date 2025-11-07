@@ -107,7 +107,7 @@ class TestNonDeterminismDetector:
             pass
 
         bs = BoundSelf()
-        setattr(bs, "_dt_deterministic", True)
+        bs._dt_deterministic = True
 
         frame = Mock()
         frame.f_code.co_filename = "/test/rand.py"
@@ -240,10 +240,11 @@ class TestNonDeterminismDetector:
         sys.stdout = captured_output
 
         try:
-            detector._handle_non_deterministic_call("datetime.now", frame)
-            output = captured_output.getvalue()
-            assert "[WORKFLOW DEBUG]" in output
-            assert "datetime.now" in output
+            with pytest.warns(NonDeterminismWarning):
+                detector._handle_non_deterministic_call("datetime.now", frame)
+                output = captured_output.getvalue()
+                assert "[WORKFLOW DEBUG]" in output
+                assert "datetime.now" in output
         finally:
             sys.stdout = sys.__stdout__
 
@@ -602,29 +603,34 @@ class TestSandboxScope:
             assert not any("was never awaited" in str(rec.message) for rec in w)
 
     @pytest.mark.asyncio
-    async def test_env_disable_detection_allows_create_task(self, monkeypatch: pytest.MonkeyPatch):
+    async def test_env_disable_detection_allows_create_task(self):
         """DAPR_WF_DISABLE_DETECTION=true forces mode off; create_task allowed."""
+        import durabletask.aio.sandbox as sandbox_module
         from durabletask.aio import AsyncWorkflowContext
 
         base_ctx = Mock()
         base_ctx.instance_id = "env-off"
         base_ctx.current_utc_datetime = datetime.datetime(2023, 1, 1, 12, 0, 0)
         async_ctx = AsyncWorkflowContext(base_ctx)
-        monkeypatch.setenv("DAPR_WF_DISABLE_DETECTION", "true")
 
         async def quick():
             await asyncio.sleep(0)
             return "ok"
 
-        with sandbox_scope(async_ctx, "strict"):
-            t = asyncio.create_task(quick())
-            assert await t == "ok"
+        # Mock the module-level constant to simulate environment variable set
+        with patch.object(sandbox_module, "_DISABLE_DETECTION", True):
+            with sandbox_scope(async_ctx, "strict"):
+                t = asyncio.create_task(quick())
+                assert await t == "ok"
 
     def test_sandbox_scope_global_disable_env_var(self):
         """Test that DAPR_WF_DISABLE_DETECTION environment variable works."""
-        with patch.dict(os.environ, {"DAPR_WF_DISABLE_DETECTION": "true"}):
-            original_random = random.random
+        import durabletask.aio.sandbox as sandbox_module
 
+        original_random = random.random
+
+        # Mock the module-level constant to simulate environment variable set
+        with patch.object(sandbox_module, "_DISABLE_DETECTION", True):
             with sandbox_scope(self.mock_ctx, "best_effort"):
                 # Should not patch when globally disabled
                 assert random.random is original_random
@@ -948,10 +954,26 @@ class TestSandboxScope:
             sleep_awaitable = asyncio.sleep(1.0)
             assert hasattr(sleep_awaitable, "__await__")
 
+            # Actually await it to avoid the warning
+            # The mock should make this complete immediately
+            try:
+                gen = sleep_awaitable.__await__()
+                next(gen)
+            except StopIteration:
+                pass  # Expected when mock completes immediately
+
             # Test zero delay - should use original (passthrough)
             zero_sleep = asyncio.sleep(0)
             # This should be the original coroutine or our awaitable
             assert hasattr(zero_sleep, "__await__")
+
+            # Actually await it to avoid the warning
+            # The mock should make this complete immediately
+            try:
+                gen = zero_sleep.__await__()
+                next(gen)
+            except StopIteration:
+                pass  # Expected when mock completes immediately
 
     def test_sandbox_strict_blocking_functions_coverage(self):
         """Test strict mode blocking functions to hit lines 588-615."""

@@ -28,7 +28,6 @@ def test_get_grpc_channel_secure():
         assert "options" in kwargs and kwargs["options"] is None
 
 
-
 def test_get_grpc_channel_default_host_address():
     with patch("grpc.insecure_channel") as mock_channel:
         get_grpc_channel(None, False, interceptors=INTERCEPTORS)

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Callable, Dict, Generator, Optional, Sequence, TypeVar, Union
+from typing import Any, Callable, Generator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2

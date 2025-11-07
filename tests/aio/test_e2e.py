@@ -37,7 +37,7 @@ def _log_orchestration_progress(
         try:
             st = hub_client.get_orchestration_state(instance_id, fetch_payloads=True)
             if st is None:
-                print(f"[async e2e] state: None")
+                print("[async e2e] state: None")
             else:
                 status_name = st.runtime_status.name
                 if status_name != last_status:
@@ -336,7 +336,7 @@ class TestAsyncWorkflowE2E:
                 val = winner.get_result()
                 print(f"[E2E] when_any_event_or_timeout winner=event val={val}")
                 return {"winner": "event", "val": val}
-            print(f"[E2E] when_any_event_or_timeout winner=timeout")
+            print("[E2E] when_any_event_or_timeout winner=timeout")
             return {"winner": "timeout"}
 
         cls.when_any_event_or_timeout = when_any_event_or_timeout

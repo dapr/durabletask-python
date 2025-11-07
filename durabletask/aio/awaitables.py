@@ -431,7 +431,7 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
             return _CompletedProxy(self._tasks_like[0], completed)
 
         # Map completed task back to the original item and return proxy
-        for original, under in zip(self._tasks_like, underlying):
+        for original, under in zip(self._tasks_like, underlying, strict=False):
             if completed == under:
                 return _CompletedProxy(original, completed)
 

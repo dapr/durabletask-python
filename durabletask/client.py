@@ -57,7 +57,6 @@ class OrchestrationState:
                 self.failure_details,
             )
 
-
     def to_json(self) -> Any:
         """Parse serialized_output as JSON and return the resulting object.
 

@@ -81,5 +81,5 @@ def test_gather_return_exceptions_wraps_children() -> None:
     # The underlying tasks_like should be SwallowExceptionAwaitable instances
     assert isinstance(wa, WhenAllAwaitable)
     # Access internal for type check
-    wrapped: List[Any] = getattr(wa, "_tasks_like")  # type: ignore[attr-defined]
+    wrapped: List[Any] = wa._tasks_like  # type: ignore[attr-defined]
     assert all(isinstance(w, SwallowExceptionAwaitable) for w in wrapped)

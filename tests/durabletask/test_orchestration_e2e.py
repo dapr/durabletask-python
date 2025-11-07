@@ -354,22 +354,21 @@ def test_terminate_recursive():
                     instance_id, output=output, recursive=recurse
                 )
 
-            metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
-
+                metadata = task_hub_client.wait_for_orchestration_completion(
+                    instance_id, timeout=30
+                )
                 assert metadata is not None
                 assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
                 assert metadata.serialized_output == f'"{output}"'
-
                 time.sleep(delay_time)
-
-            if recurse:
-                assert activity_counter == 0, (
-                    "Activity should not have executed with recursive termination"
-                )
-            else:
-                assert activity_counter == 5, (
-                    "Activity should have executed without recursive termination"
-                )
+                if recurse:
+                    assert activity_counter == 0, (
+                        "Activity should not have executed with recursive termination"
+                    )
+                else:
+                    assert activity_counter == 5, (
+                        "Activity should have executed without recursive termination"
+                    )
 
 
 def test_continue_as_new():

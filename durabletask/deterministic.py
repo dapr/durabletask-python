@@ -92,7 +92,7 @@ class DeterministicContextMixin:
         )
         # Mark as deterministic for sandbox detector whitelisting of bound methods
         try:
-            setattr(rnd, "_dt_deterministic", True)
+            rnd._dt_deterministic = True
         except Exception:
             pass
         return rnd
