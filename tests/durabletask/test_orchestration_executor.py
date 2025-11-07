@@ -3,7 +3,7 @@
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -86,7 +86,7 @@ def test_ctx_parent_instance_id_from_parentInstance_field():
     child_id = "child-no-colon"  # ensure fallback derivation does not apply
     exec_started = pb.HistoryEvent(
         eventId=-1,
-        timestamp=helpers.new_timestamp(datetime.now(UTC)),
+        timestamp=helpers.new_timestamp(datetime.now(timezone.utc)),
         executionStarted=pb.ExecutionStartedEvent(
             name=child_name,
             input=helpers.get_string_value(None),
@@ -909,7 +909,7 @@ def test_nondeterminism_expected_sub_orchestration_task_completion_wrong_task_ty
 
     def orchestrator(ctx: task.OrchestrationContext, _):
         result = yield ctx.create_timer(
-            datetime.now(UTC)
+            datetime.now(timezone.utc)
         )  # created timer but history expects sub-orchestration
         return result
 
@@ -1003,7 +1003,7 @@ def test_raise_event_buffered():
 
     # Complete the timer task. The orchestration should move to the wait_for_external_event step, which
     # should then complete immediately because the event was buffered in the old event history.
-    timer_due_time = datetime.now(UTC) + timedelta(days=1)
+    timer_due_time = datetime.now(timezone.utc) + timedelta(days=1)
     old_events = new_events + [helpers.new_timer_created_event(1, timer_due_time)]
     new_events = [helpers.new_timer_fired_event(1, timer_due_time)]
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
@@ -1096,9 +1096,9 @@ def test_continue_as_new(save_events: bool):
         helpers.new_event_raised_event("my_event", encoded_input="42"),
         helpers.new_event_raised_event("my_event", encoded_input="43"),
         helpers.new_event_raised_event("my_event", encoded_input="44"),
-        helpers.new_timer_created_event(1, datetime.now(UTC) + timedelta(days=1)),
+        helpers.new_timer_created_event(1, datetime.now(timezone.utc) + timedelta(days=1)),
     ]
-    new_events = [helpers.new_timer_fired_event(1, datetime.now(UTC) + timedelta(days=1))]
+    new_events = [helpers.new_timer_fired_event(1, datetime.now(timezone.utc) + timedelta(days=1))]
 
     # Execute the orchestration. It should be in a running state waiting for the timer to fire
     executor = worker._OrchestrationExecutor(registry, TEST_LOGGER)
