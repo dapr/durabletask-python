@@ -194,7 +194,7 @@ Certain aspects like multi-app activities require the full dapr runtime to be ru
 ```shell
 dapr init || true
 
-dapr run --app-id test-app --dapr-grpc-port  4001 --components-path ./examples/components/
+dapr run --app-id test-app --dapr-grpc-port  4001 --resources-path ./examples/components/
 ```
 
 To run the E2E tests on a specific python version (eg: 3.11), run the following command from the project root:

@@ -127,8 +127,27 @@ class TaskHubGrpcClient:
             interceptors=interceptors,
             options=channel_options,
         )
+        self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
         self._logger = shared.get_logger("client", log_handler, log_formatter)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.close()
+        finally:
+            return False
+
+    def close(self) -> None:
+        """Close the underlying gRPC channel."""
+        try:
+            # grpc.Channel.close() is idempotent
+            self._channel.close()
+        except Exception:
+            # Best-effort cleanup
+            pass
 
     def schedule_new_orchestration(
         self,
@@ -188,10 +207,59 @@ class TaskHubGrpcClient:
     ) -> Optional[OrchestrationState]:
         req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
-            grpc_timeout = None if timeout == 0 else timeout
-            self._logger.info(
-                f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to complete."
-            )
+            # gRPC timeout mapping (pytest unit tests may pass None explicitly)
+            grpc_timeout = None if (timeout is None or timeout == 0) else timeout
+
+            # If timeout is None or 0, skip pre-checks/polling and call server-side wait directly
+            if timeout is None or timeout == 0:
+                self._logger.info(
+                    f"Waiting {'indefinitely' if not timeout else f'up to {timeout}s'} for instance '{instance_id}' to complete."
+                )
+                res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
+                    req, timeout=grpc_timeout
+                )
+                state = new_orchestration_state(req.instanceId, res)
+                return state
+
+            # For positive timeout, best-effort pre-check and short polling to avoid long server waits
+            try:
+                # First check if the orchestration is already completed
+                current_state = self.get_orchestration_state(
+                    instance_id, fetch_payloads=fetch_payloads
+                )
+                if current_state and current_state.runtime_status in [
+                    OrchestrationStatus.COMPLETED,
+                    OrchestrationStatus.FAILED,
+                    OrchestrationStatus.TERMINATED,
+                ]:
+                    return current_state
+
+                # Poll for completion with exponential backoff to handle eventual consistency
+                import time
+
+                poll_timeout = min(timeout, 10)
+                poll_start = time.time()
+                poll_interval = 0.1
+
+                while time.time() - poll_start < poll_timeout:
+                    current_state = self.get_orchestration_state(
+                        instance_id, fetch_payloads=fetch_payloads
+                    )
+
+                    if current_state and current_state.runtime_status in [
+                        OrchestrationStatus.COMPLETED,
+                        OrchestrationStatus.FAILED,
+                        OrchestrationStatus.TERMINATED,
+                    ]:
+                        return current_state
+
+                    time.sleep(poll_interval)
+                    poll_interval = min(poll_interval * 1.5, 1.0)  # Exponential backoff, max 1s
+            except Exception:
+                # Ignore pre-check/poll issues (e.g., mocked stubs in unit tests) and fall back
+                pass
+
+            self._logger.info(f"Waiting up to {timeout}s for instance '{instance_id}' to complete.")
             res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
                 req, timeout=grpc_timeout
             )

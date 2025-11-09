@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from datetime import timedelta
+from typing import Optional
 
 import pytest
 
@@ -14,6 +15,32 @@ from durabletask import client, task, worker
 #       dapr init || true
 #       dapr run --app-id test-app --dapr-grpc-port  4001
 pytestmark = pytest.mark.e2e
+
+
+def _wait_until_terminal(
+    hub_client: client.TaskHubGrpcClient,
+    instance_id: str,
+    *,
+    timeout_s: int = 30,
+    fetch_payloads: bool = True,
+) -> Optional[client.OrchestrationState]:
+    """Polling-based completion wait that does not rely on the completion stream.
+
+    Returns the terminal state or None if timeout.
+    """
+    deadline = time.time() + timeout_s
+    delay = 0.1
+    while time.time() < deadline:
+        st = hub_client.get_orchestration_state(instance_id, fetch_payloads=fetch_payloads)
+        if st and st.runtime_status in (
+            client.OrchestrationStatus.COMPLETED,
+            client.OrchestrationStatus.FAILED,
+            client.OrchestrationStatus.TERMINATED,
+        ):
+            return st
+        time.sleep(delay)
+        delay = min(delay * 1.5, 1.0)
+    return None
 
 
 def test_empty_orchestration():
@@ -31,11 +58,17 @@ def test_empty_orchestration():
     with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # set a custom max send length option
         c = client.TaskHubGrpcClient(channel_options=channel_options)
         id = c.schedule_new_orchestration(empty_orchestrator)
         state = c.wait_for_orchestration_completion(id, timeout=30)
+
+        # Test calling wait again on already-completed orchestration (should return immediately)
+        state2 = c.wait_for_orchestration_completion(id, timeout=30)
+        assert state2 is not None
+        assert state2.runtime_status == client.OrchestrationStatus.COMPLETED
 
     assert invoked
     assert state is not None
@@ -46,6 +79,41 @@ def test_empty_orchestration():
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status is None
+
+
+def test_wait_for_idle():
+    """Test that wait_for_idle properly waits for in-flight activities to complete."""
+    import time
+
+    def slow_activity(ctx: task.ActivityContext, input: int):
+        # Simulate slow activity
+        time.sleep(0.2)
+        return input + 1
+
+    def orchestrator(ctx: task.OrchestrationContext, input: int):
+        # Schedule multiple activities without waiting
+        tasks = [ctx.call_activity(slow_activity, input=i) for i in range(3)]
+        # Wait for all to complete
+        results = yield task.when_all(tasks)
+        return sum(results)
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orchestrator)
+        w.add_activity(slow_activity)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        with client.TaskHubGrpcClient() as c:
+            id = c.schedule_new_orchestration(orchestrator, input=1)
+
+            # Wait for orchestration to complete
+            state = c.wait_for_orchestration_completion(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+
+        # Wait for any lingering activities to finish
+        idle = w.wait_for_idle(timeout=5.0)
+        assert idle is True
 
 
 def test_activity_sequence():
@@ -65,10 +133,11 @@ def test_activity_sequence():
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(sequence, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(sequence, input=1)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.name == task.get_name(sequence)
@@ -109,10 +178,11 @@ def test_activity_error_handling():
         w.add_activity(throw)
         w.add_activity(increment_counter)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.name == task.get_name(orchestrator)
@@ -151,10 +221,11 @@ def test_sub_orchestration_fan_out():
         w.add_orchestrator(orchestrator_child)
         w.add_orchestrator(parent_orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
@@ -173,6 +244,7 @@ def test_wait_for_multiple_external_events():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
@@ -202,13 +274,14 @@ def test_wait_for_external_event_timeout(raise_event: bool):
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        if raise_event:
-            task_hub_client.raise_orchestration_event(id, "Approval")
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            if raise_event:
+                task_hub_client.raise_orchestration_event(id, "Approval")
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
 
     assert state is not None
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
@@ -227,34 +300,34 @@ def test_suspend_and_resume():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
-
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
-        assert state is not None
-
-        # Suspend the orchestration and wait for it to go into the SUSPENDED state
-        task_hub_client.suspend_orchestration(id)
-        while state.runtime_status == client.OrchestrationStatus.RUNNING:
-            time.sleep(0.1)
-            state = task_hub_client.get_orchestration_state(id)
+        w.wait_for_ready(timeout=10)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
             assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
 
-        # Raise an event to the orchestration and confirm that it does NOT complete
-        task_hub_client.raise_orchestration_event(id, "my_event", data=42)
-        try:
-            state = task_hub_client.wait_for_orchestration_completion(id, timeout=3)
-            assert False, "Orchestration should not have completed"
-        except TimeoutError:
-            pass
+            # Suspend the orchestration and wait for it to go into the SUSPENDED state
+            task_hub_client.suspend_orchestration(id)
+            while state.runtime_status == client.OrchestrationStatus.RUNNING:
+                time.sleep(0.1)
+                state = task_hub_client.get_orchestration_state(id)
+                assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.SUSPENDED
 
-        # Resume the orchestration and wait for it to complete
-        task_hub_client.resume_orchestration(id)
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.COMPLETED
-        assert state.serialized_output == json.dumps(42)
+            # Raise an event to the orchestration and confirm that it does NOT complete
+            task_hub_client.raise_orchestration_event(id, "my_event", data=42)
+            try:
+                state = task_hub_client.wait_for_orchestration_completion(id, timeout=3)
+                assert False, "Orchestration should not have completed"
+            except TimeoutError:
+                pass
+
+            # Resume the orchestration and wait for it to complete
+            task_hub_client.resume_orchestration(id)
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+            assert state.serialized_output == json.dumps(42)
 
 
 def test_terminate():
@@ -266,18 +339,18 @@ def test_terminate():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
+        with client.TaskHubGrpcClient() as task_hub_client:
+            id = task_hub_client.schedule_new_orchestration(orchestrator)
+            state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.RUNNING
 
-        task_hub_client = client.TaskHubGrpcClient()
-        id = task_hub_client.schedule_new_orchestration(orchestrator)
-        state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.RUNNING
-
-        task_hub_client.terminate_orchestration(id, output="some reason for termination")
-        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
-        assert state is not None
-        assert state.runtime_status == client.OrchestrationStatus.TERMINATED
-        assert state.serialized_output == json.dumps("some reason for termination")
+            task_hub_client.terminate_orchestration(id, output="some reason for termination")
+            state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+            assert state is not None
+            assert state.runtime_status == client.OrchestrationStatus.TERMINATED
+            assert state.serialized_output == json.dumps("some reason for termination")
 
 
 def test_terminate_recursive():
@@ -308,31 +381,34 @@ def test_terminate_recursive():
             w.add_orchestrator(orchestrator_child)
             w.add_orchestrator(parent_orchestrator)
             w.start()
-
-            task_hub_client = client.TaskHubGrpcClient()
-            instance_id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=5)
-
-            time.sleep(2)
-
-            output = "Recursive termination = {recurse}"
-            task_hub_client.terminate_orchestration(instance_id, output=output, recursive=recurse)
-
-            metadata = task_hub_client.wait_for_orchestration_completion(instance_id, timeout=30)
-
-            assert metadata is not None
-            assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
-            assert metadata.serialized_output == f'"{output}"'
-
-            time.sleep(delay_time)
-
-            if recurse:
-                assert activity_counter == 0, (
-                    "Activity should not have executed with recursive termination"
+            w.wait_for_ready(timeout=10)
+            with client.TaskHubGrpcClient() as task_hub_client:
+                instance_id = task_hub_client.schedule_new_orchestration(
+                    parent_orchestrator, input=5
                 )
-            else:
-                assert activity_counter == 5, (
-                    "Activity should have executed without recursive termination"
+
+                time.sleep(2)
+
+                output = "Recursive termination = {recurse}"
+                task_hub_client.terminate_orchestration(
+                    instance_id, output=output, recursive=recurse
                 )
+
+                metadata = task_hub_client.wait_for_orchestration_completion(
+                    instance_id, timeout=30
+                )
+                assert metadata is not None
+                assert metadata.runtime_status == client.OrchestrationStatus.TERMINATED
+                assert metadata.serialized_output == f'"{output}"'
+                time.sleep(delay_time)
+                if recurse:
+                    assert activity_counter == 0, (
+                        "Activity should not have executed with recursive termination"
+                    )
+                else:
+                    assert activity_counter == 5, (
+                        "Activity should have executed without recursive termination"
+                    )
 
 
 def test_continue_as_new():
@@ -354,6 +430,7 @@ def test_continue_as_new():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orchestrator)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=0)
@@ -454,6 +531,7 @@ def test_retry_policies():
         w.add_orchestrator(child_orchestrator_with_retry)
         w.add_activity(throw_activity_with_retry)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
@@ -467,6 +545,34 @@ def test_retry_policies():
         assert state.failure_details.stack_trace is not None
         assert throw_activity_counter == 9
         assert child_orch_counter == 3
+
+    # Test 2: Verify NonRetryableError prevents retries even with retry policy
+    non_retryable_counter = 0
+
+    def throw_non_retryable(ctx: task.ActivityContext, _):
+        nonlocal non_retryable_counter
+        non_retryable_counter += 1
+        raise task.NonRetryableError("Cannot retry this!")
+
+    def orchestrator_with_non_retryable(ctx: task.OrchestrationContext, _):
+        # Even with retry policy, NonRetryableError should fail immediately
+        yield ctx.call_activity(throw_non_retryable, retry_policy=retry_policy)
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orchestrator_with_non_retryable)
+        w.add_activity(throw_non_retryable)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        task_hub_client = client.TaskHubGrpcClient()
+        id = task_hub_client.schedule_new_orchestration(orchestrator_with_non_retryable)
+        state = task_hub_client.wait_for_orchestration_completion(id, timeout=30)
+        assert state is not None
+        assert state.runtime_status == client.OrchestrationStatus.FAILED
+        assert state.failure_details is not None
+        assert "Cannot retry this!" in state.failure_details.message
+        # Key assertion: activity was called exactly once (no retries)
+        assert non_retryable_counter == 1
 
 
 def test_retry_timeout():
@@ -495,6 +601,7 @@ def test_retry_timeout():
         w.add_orchestrator(mock_orchestrator)
         w.add_activity(throw_activity)
         w.start()
+        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(mock_orchestrator)
