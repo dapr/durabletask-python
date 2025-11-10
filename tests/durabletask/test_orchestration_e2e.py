@@ -636,3 +636,181 @@ def test_custom_status():
     assert state.serialized_input is None
     assert state.serialized_output is None
     assert state.serialized_custom_status == '"foobaz"'
+
+
+def test_now_with_sequence_ordering():
+    """
+    Test that now_with_sequence() maintains strict ordering across workflow execution.
+
+    This verifies:
+    1. Timestamps increment sequentially
+    2. Order is preserved across activity calls
+    3. Deterministic behavior (timestamps are consistent on replay)
+    """
+
+    def simple_activity(ctx, input_val: str):
+        return f"activity_{input_val}_done"
+
+    def timestamp_ordering_workflow(ctx: task.OrchestrationContext, _):
+        timestamps = []
+
+        # First timestamp before any activities
+        t1 = ctx.now_with_sequence()
+        timestamps.append(("t1_before_activities", t1.isoformat()))
+
+        # Call first activity
+        result1 = yield ctx.call_activity(simple_activity, input="first")
+        timestamps.append(("activity_1_result", result1))
+
+        # Timestamp after first activity
+        t2 = ctx.now_with_sequence()
+        timestamps.append(("t2_after_activity_1", t2.isoformat()))
+
+        # Call second activity
+        result2 = yield ctx.call_activity(simple_activity, input="second")
+        timestamps.append(("activity_2_result", result2))
+
+        # Timestamp after second activity
+        t3 = ctx.now_with_sequence()
+        timestamps.append(("t3_after_activity_2", t3.isoformat()))
+
+        # A few more rapid timestamps to test counter incrementing
+        t4 = ctx.now_with_sequence()
+        timestamps.append(("t4_rapid", t4.isoformat()))
+
+        t5 = ctx.now_with_sequence()
+        timestamps.append(("t5_rapid", t5.isoformat()))
+
+        # Return all timestamps for verification
+        return {
+            "timestamps": timestamps,
+            "t1": t1.isoformat(),
+            "t2": t2.isoformat(),
+            "t3": t3.isoformat(),
+            "t4": t4.isoformat(),
+            "t5": t5.isoformat(),
+        }
+
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
+        w.add_orchestrator(timestamp_ordering_workflow)
+        w.add_activity(simple_activity)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        with client.TaskHubGrpcClient() as c:
+            instance_id = c.schedule_new_orchestration(timestamp_ordering_workflow)
+            state = c.wait_for_orchestration_completion(
+                instance_id, timeout=30, fetch_payloads=True
+            )
+
+    assert state is not None
+    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+    assert state.failure_details is None
+
+    # Parse result
+    result = json.loads(state.serialized_output)
+    assert result is not None
+
+    # Verify all timestamps are present
+    assert "t1" in result
+    assert "t2" in result
+    assert "t3" in result
+    assert "t4" in result
+    assert "t5" in result
+
+    # Parse timestamps back to datetime objects for comparison
+    from datetime import datetime
+
+    t1 = datetime.fromisoformat(result["t1"])
+    t2 = datetime.fromisoformat(result["t2"])
+    t3 = datetime.fromisoformat(result["t3"])
+    t4 = datetime.fromisoformat(result["t4"])
+    t5 = datetime.fromisoformat(result["t5"])
+
+    # Verify strict ordering: t1 < t2 < t3 < t4 < t5
+    # This is the key guarantee - timestamps must maintain order for tracing
+    assert t1 < t2, f"t1 ({t1}) should be < t2 ({t2})"
+    assert t2 < t3, f"t2 ({t2}) should be < t3 ({t3})"
+    assert t3 < t4, f"t3 ({t3}) should be < t4 ({t4})"
+    assert t4 < t5, f"t4 ({t4}) should be < t5 ({t5})"
+
+    # Verify that timestamps called in rapid succession (t3, t4, t5 with no activities between)
+    # have exactly 1 microsecond deltas. These happen within the same replay execution.
+    delta_t3_t4 = (t4 - t3).total_seconds() * 1_000_000
+    delta_t4_t5 = (t5 - t4).total_seconds() * 1_000_000
+
+    assert delta_t3_t4 == 1.0, f"t3 to t4 should be 1 microsecond, got {delta_t3_t4}"
+    assert delta_t4_t5 == 1.0, f"t4 to t5 should be 1 microsecond, got {delta_t4_t5}"
+
+    # Note: We don't check exact deltas for t1->t2 or t2->t3 because they span
+    # activity calls. During replay, current_utc_datetime changes based on event
+    # timestamps, so the base time shifts. However, ordering is still guaranteed.
+
+
+def test_cannot_add_orchestrator_while_running():
+    """Test that orchestrators cannot be added while the worker is running."""
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        return "done"
+
+    def another_orchestrator(ctx: task.OrchestrationContext, _):
+        return "another"
+
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
+        w.add_orchestrator(orchestrator)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        # Try to add another orchestrator while running
+        with pytest.raises(RuntimeError, match="Orchestrators cannot be added while the worker is running"):
+            w.add_orchestrator(another_orchestrator)
+
+
+def test_cannot_add_activity_while_running():
+    """Test that activities cannot be added while the worker is running."""
+    def activity(ctx: task.ActivityContext, input):
+        return input
+
+    def another_activity(ctx: task.ActivityContext, input):
+        return input * 2
+
+    def orchestrator(ctx: task.OrchestrationContext, _):
+        return "done"
+
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
+        w.add_orchestrator(orchestrator)
+        w.add_activity(activity)
+        w.start()
+        w.wait_for_ready(timeout=10)
+
+        # Try to add another activity while running
+        with pytest.raises(RuntimeError, match="Activities cannot be added while the worker is running"):
+            w.add_activity(another_activity)
+
+
+def test_can_add_functions_after_stop():
+    """Test that orchestrators/activities can be added after stopping the worker."""
+    def orchestrator1(ctx: task.OrchestrationContext, _):
+        return "done"
+
+    def orchestrator2(ctx: task.OrchestrationContext, _):
+        return "done2"
+
+    def activity(ctx: task.ActivityContext, input):
+        return input
+
+    w = worker.TaskHubGrpcWorker(stop_timeout=2.0)
+    w.add_orchestrator(orchestrator1)
+    w.start()
+    w.wait_for_ready(timeout=10)
+
+    c = client.TaskHubGrpcClient()
+    id = c.schedule_new_orchestration(orchestrator1)
+    state = c.wait_for_orchestration_completion(id, timeout=30)
+    assert state is not None
+    assert state.runtime_status == client.OrchestrationStatus.COMPLETED
+
+    w.stop()
+
+    # Should be able to add after stop
+    w.add_orchestrator(orchestrator2)
+    w.add_activity(activity)

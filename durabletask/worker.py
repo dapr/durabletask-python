@@ -19,7 +19,7 @@ import durabletask.internal.helpers as ph
 import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
-from durabletask import task
+from durabletask import deterministic, task
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -663,11 +663,12 @@ class TaskHubGrpcWorker:
             )
 
 
-class _RuntimeOrchestrationContext(task.OrchestrationContext):
+class _RuntimeOrchestrationContext(task.OrchestrationContext, deterministic.DeterministicContextMixin):
     _generator: Optional[Generator[task.Task, Any, Any]]
     _previous_task: Optional[task.Task]
 
     def __init__(self, instance_id: str):
+        super().__init__()
         self._generator = None
         self._is_replaying = True
         self._is_suspended = False
