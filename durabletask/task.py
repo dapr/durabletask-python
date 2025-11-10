@@ -233,6 +233,16 @@ class OrchestrationStateError(Exception):
     pass
 
 
+class NonRetryableError(Exception):
+    """Exception indicating the operation should not be retried.
+
+    If an activity or sub-orchestration raises this exception, retry logic will be
+    bypassed and the failure will be returned immediately to the orchestrator.
+    """
+
+    pass
+
+
 class Task(ABC, Generic[T]):
     """Abstract base class for asynchronous tasks in a durable orchestration."""
 
@@ -397,7 +407,7 @@ class RetryableTask(CompletableTask[T]):
                 next_delay_f = min(
                     next_delay_f, self._retry_policy.max_retry_interval.total_seconds()
                 )
-                return timedelta(seconds=next_delay_f)
+            return timedelta(seconds=next_delay_f)
 
         return None
 
@@ -490,6 +500,7 @@ class RetryPolicy:
         backoff_coefficient: Optional[float] = 1.0,
         max_retry_interval: Optional[timedelta] = None,
         retry_timeout: Optional[timedelta] = None,
+        non_retryable_error_types: Optional[list[Union[str, type]]] = None,
     ):
         """Creates a new RetryPolicy instance.
 
@@ -505,6 +516,11 @@ class RetryPolicy:
             The maximum retry interval to use for any retry attempt.
         retry_timeout : Optional[timedelta]
             The maximum amount of time to spend retrying the operation.
+        non_retryable_error_types : Optional[list[Union[str, type]]]
+            A list of exception type names or classes that should not be retried.
+            If a failure's error type matches any of these, the task fails immediately.
+            The built-in NonRetryableError is always treated as non-retryable regardless
+            of this setting.
         """
         # validate inputs
         if first_retry_interval < timedelta(seconds=0):
@@ -523,6 +539,17 @@ class RetryPolicy:
         self._backoff_coefficient = backoff_coefficient
         self._max_retry_interval = max_retry_interval
         self._retry_timeout = retry_timeout
+        # Normalize non-retryable error type names to a set of strings
+        names: Optional[set[str]] = None
+        if non_retryable_error_types:
+            names = set()
+            for t in non_retryable_error_types:
+                if isinstance(t, str):
+                    if t:
+                        names.add(t)
+                elif isinstance(t, type):
+                    names.add(t.__name__)
+        self._non_retryable_error_types = names
 
     @property
     def first_retry_interval(self) -> timedelta:
@@ -548,6 +575,15 @@ class RetryPolicy:
     def retry_timeout(self) -> Optional[timedelta]:
         """The maximum amount of time to spend retrying the operation."""
         return self._retry_timeout
+
+    @property
+    def non_retryable_error_types(self) -> Optional[set[str]]:
+        """Set of error type names that should not be retried.
+
+        Comparison is performed against the errorType string provided by the
+        backend (typically the exception class name).
+        """
+        return self._non_retryable_error_types
 
 
 def get_name(fn: Callable) -> str:
