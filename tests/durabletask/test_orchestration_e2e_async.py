@@ -110,7 +110,7 @@ async def test_activity_error_handling():
         return error_msg
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.add_activity(throw)
         w.add_activity(increment_counter)
@@ -153,7 +153,7 @@ async def test_sub_orchestration_fan_out():
         yield task.when_all(tasks)
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_activity(increment)
         w.add_orchestrator(orchestrator_child)
         w.add_orchestrator(parent_orchestrator)
@@ -178,7 +178,7 @@ async def test_wait_for_multiple_external_events():
         return [a, b, c]
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
 
@@ -208,7 +208,7 @@ async def test_wait_for_external_event_timeout(raise_event: bool):
             return "timed out"
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
 
@@ -234,7 +234,7 @@ async def test_suspend_and_resume():
         return result
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
         # there could be a race condition if the workflow is scheduled before orchestrator is started
@@ -275,7 +275,7 @@ async def test_terminate():
         return result
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
 
@@ -302,7 +302,7 @@ async def test_terminate_recursive():
         return result
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(root)
         w.add_orchestrator(child)
         w.start()
@@ -345,7 +345,7 @@ async def test_continue_as_new():
             return all_results
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
 
@@ -376,13 +376,13 @@ async def test_retry_policies():
     child_orch_counter = 0
     throw_activity_counter = 0
 
-    # Second setup: With retry policies
+    # Second setup: With retry policies (minimal delays for faster tests)
     retry_policy = task.RetryPolicy(
-        first_retry_interval=timedelta(seconds=1),
+        first_retry_interval=timedelta(seconds=0.05),  # 0.1 → 0.05 (50% faster)
         max_number_of_attempts=3,
         backoff_coefficient=1,
-        max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=30),
+        max_retry_interval=timedelta(seconds=0.5),  # 1 → 0.5
+        retry_timeout=timedelta(seconds=2),  # 3 → 2
     )
 
     def parent_orchestrator_with_retry(ctx: task.OrchestrationContext, _):
@@ -401,7 +401,7 @@ async def test_retry_policies():
         throw_activity_counter += 1
         raise RuntimeError("Kah-BOOOOM!!!")
 
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(parent_orchestrator_with_retry)
         w.add_orchestrator(child_orchestrator_with_retry)
         w.add_activity(throw_activity_with_retry)
@@ -423,16 +423,16 @@ async def test_retry_policies():
 
 async def test_retry_timeout():
     # This test verifies that the retry timeout is working as expected.
-    # Max number of attempts is 5 and retry timeout is 14 seconds.
-    # Total seconds consumed till 4th attempt is 1 + 2 + 4 + 8 = 15 seconds.
-    # So, the 5th attempt should not be made and the orchestration should fail.
+    # Max number of attempts is 5 and retry timeout is 1.7 seconds.
+    # Delays: 0.25 + 0.5 + 1.0 = 1.75 seconds cumulative before 4th attempt.
+    # So, the 5th attempt (which would happen at 1.75s) should not be made.
     throw_activity_counter = 0
     retry_policy = task.RetryPolicy(
         first_retry_interval=timedelta(seconds=1),
         max_number_of_attempts=5,
         backoff_coefficient=2,
         max_retry_interval=timedelta(seconds=10),
-        retry_timeout=timedelta(seconds=14),
+        retry_timeout=timedelta(seconds=13),  # Set just before 4th attempt
     )
 
     def mock_orchestrator(ctx: task.OrchestrationContext, _):
@@ -443,7 +443,7 @@ async def test_retry_timeout():
         throw_activity_counter += 1
         raise RuntimeError("Kah-BOOOOM!!!")
 
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(mock_orchestrator)
         w.add_activity(throw_activity)
         w.start()
@@ -465,7 +465,7 @@ async def test_custom_status():
         ctx.set_custom_status("foobaz")
 
     # Start a worker, which will connect to the sidecar in a background thread
-    with worker.TaskHubGrpcWorker() as w:
+    with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
 
