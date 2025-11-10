@@ -25,8 +25,8 @@ import string as _string
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional, Protocol, TypeVar, runtime_checkable
+from datetime import datetime, timedelta
+from typing import Optional, TypeVar
 
 
 @dataclass
@@ -99,17 +99,6 @@ def deterministic_uuid_v5(instance_id: str, current_datetime: datetime, counter:
     return uuid.uuid5(namespace, name)
 
 
-@runtime_checkable
-class DeterministicContextProtocol(Protocol):
-    """Protocol for contexts that provide deterministic operations."""
-
-    @property
-    def instance_id(self) -> str: ...
-
-    @property
-    def current_utc_datetime(self) -> datetime: ...
-
-
 class DeterministicContextMixin:
     """
     Mixin providing deterministic helpers for workflow contexts.
@@ -121,17 +110,17 @@ class DeterministicContextMixin:
     """
 
     def __init__(self, *args, **kwargs):
-        """Initialize the mixin with a UUID counter."""
+        """Initialize the mixin with UUID and timestamp counters."""
         super().__init__(*args, **kwargs)
         # Counter for deterministic UUID generation (matches .NET newGuidCounter)
         # This counter resets to 0 on each replay, ensuring determinism
         self._uuid_counter: int = 0
+        # Counter for deterministic timestamp sequencing (resets on replay)
+        self._timestamp_counter: int = 0
 
     def now(self) -> datetime:
-        """Return orchestration time (deterministic UTC)."""
-        value = self.current_utc_datetime  # type: ignore[attr-defined]
-        assert isinstance(value, datetime)
-        return value
+        """Alias for deterministic current_utc_datetime."""
+        return self.current_utc_datetime  # type: ignore[attr-defined]
 
     def random(self) -> random.Random:
         """Return a PRNG seeded deterministically from instance id and orchestration time."""
@@ -139,7 +128,7 @@ class DeterministicContextMixin:
             self.instance_id,  # type: ignore[attr-defined]
             self.current_utc_datetime,  # type: ignore[attr-defined]
         )
-        # Mark as deterministic for sandbox detector whitelisting of bound methods
+        # Mark as deterministic for asyncio sandbox detector whitelisting of bound methods (randint, random)
         try:
             rnd._dt_deterministic = True
         except Exception:
@@ -201,3 +190,35 @@ class DeterministicContextMixin:
             raise IndexError("Cannot choose from empty sequence")
         rnd = self.random()
         return rnd.choice(sequence)
+
+    def now_with_sequence(self) -> datetime:
+        """
+        Return deterministic timestamp with microsecond increment per call.
+
+        Each call returns: current_utc_datetime + (counter * 1 microsecond)
+
+        This provides ordered, unique timestamps for tracing/telemetry while maintaining
+        determinism across replays. The counter resets to 0 on each replay (similar to
+        _uuid_counter pattern).
+
+        Perfect for preserving event ordering within a workflow without requiring activities.
+
+        Returns:
+            datetime: Deterministic timestamp that increments on each call
+
+        Example:
+            ```python
+            def workflow(ctx):
+                t1 = ctx.now_with_sequence()  # 2024-01-01 12:00:00.000000
+                result = yield ctx.call_activity(some_activity, input="data")
+                t2 = ctx.now_with_sequence()  # 2024-01-01 12:00:00.000001
+                # t1 < t2, preserving order for telemetry
+            ```
+        """
+        offset = timedelta(microseconds=self._timestamp_counter)
+        self._timestamp_counter += 1
+        return self.current_utc_datetime + offset  # type: ignore[attr-defined]
+
+    def current_utc_datetime_with_sequence(self):
+        """Alias for now_with_sequence for API parity with other SDKs."""
+        return self.now_with_sequence()

@@ -19,7 +19,7 @@ import durabletask.internal.helpers as ph
 import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
-from durabletask import task
+from durabletask import deterministic, task
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -159,6 +159,8 @@ class TaskHubGrpcWorker:
             interceptors to apply to the channel. Defaults to None.
         concurrency_options (Optional[ConcurrencyOptions], optional): Configuration for
             controlling worker concurrency limits. If None, default settings are used.
+        stop_timeout (float, optional): Maximum time in seconds to wait for the worker thread
+            to stop when calling stop(). Defaults to 30.0. Useful to set lower values in tests.
 
     Attributes:
         concurrency_options (ConcurrencyOptions): The current concurrency configuration.
@@ -224,6 +226,7 @@ class TaskHubGrpcWorker:
         interceptors: Optional[Sequence[shared.ClientInterceptor]] = None,
         concurrency_options: Optional[ConcurrencyOptions] = None,
         channel_options: Optional[Sequence[tuple[str, Any]]] = None,
+        stop_timeout: float = 30.0,
     ):
         self._registry = _Registry()
         self._host_address = host_address if host_address else shared.get_default_host_address()
@@ -232,6 +235,7 @@ class TaskHubGrpcWorker:
         self._is_running = False
         self._secure_channel = secure_channel
         self._channel_options = channel_options
+        self._stop_timeout = stop_timeout
         # Track in-flight activity executions for graceful draining
         import threading as _threading
 
@@ -512,7 +516,7 @@ class TaskHubGrpcWorker:
         if self._response_stream is not None:
             self._response_stream.cancel()
         if self._runLoop is not None:
-            self._runLoop.join(timeout=30)
+            self._runLoop.join(timeout=self._stop_timeout)
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")
         self._is_running = False
@@ -659,11 +663,12 @@ class TaskHubGrpcWorker:
             )
 
 
-class _RuntimeOrchestrationContext(task.OrchestrationContext):
+class _RuntimeOrchestrationContext(task.OrchestrationContext, deterministic.DeterministicContextMixin):
     _generator: Optional[Generator[task.Task, Any, Any]]
     _previous_task: Optional[task.Task]
 
     def __init__(self, instance_id: str):
+        super().__init__()
         self._generator = None
         self._is_replaying = True
         self._is_suspended = False

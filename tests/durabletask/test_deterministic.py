@@ -19,12 +19,12 @@ import pytest
 
 from durabletask.deterministic import (
     DeterminismSeed,
-    DeterministicContextMixin,
     derive_seed,
     deterministic_random,
     deterministic_uuid4,
     deterministic_uuid_v5,
 )
+from durabletask.worker import _RuntimeOrchestrationContext
 
 
 class TestDeterminismSeed:
@@ -201,12 +201,11 @@ class TestDeterministicUuidV5:
         assert uuids[4] == deterministic_uuid_v5("test-instance", dt, 4)
 
 
-class MockDeterministicContext(DeterministicContextMixin):
+def mock_deterministic_context(instance_id: str, current_utc_datetime: datetime) -> _RuntimeOrchestrationContext:
     """Mock context for testing DeterministicContextMixin."""
-
-    def __init__(self, instance_id: str, current_utc_datetime: datetime):
-        self.instance_id = instance_id
-        self.current_utc_datetime = current_utc_datetime
+    ctx = _RuntimeOrchestrationContext(instance_id)
+    ctx.current_utc_datetime = current_utc_datetime
+    return ctx
 
 
 class TestDeterministicContextMixin:
@@ -215,13 +214,13 @@ class TestDeterministicContextMixin:
     def test_now_returns_current_utc_datetime(self):
         """Test that now() returns the orchestration time."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
         assert ctx.now() == dt
 
     def test_random_returns_deterministic_prng(self):
         """Test that random() returns a deterministic PRNG."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
         rnd1 = ctx.random()
         rnd2 = ctx.random()
 
@@ -233,7 +232,7 @@ class TestDeterministicContextMixin:
     def test_random_has_deterministic_marker(self):
         """Test that random() sets _dt_deterministic marker."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
         rnd = ctx.random()
         assert hasattr(rnd, "_dt_deterministic")
         assert rnd._dt_deterministic is True
@@ -241,8 +240,8 @@ class TestDeterministicContextMixin:
     def test_uuid4_generates_deterministic_uuid(self):
         """Test that uuid4() generates deterministic UUIDs v5 with counter."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx1 = MockDeterministicContext("test-instance", dt)
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx1 = mock_deterministic_context("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
 
         uuid1 = ctx1.uuid4()
         uuid2 = ctx2.uuid4()
@@ -254,7 +253,7 @@ class TestDeterministicContextMixin:
     def test_uuid4_increments_counter(self):
         """Test that uuid4() increments counter producing different UUIDs."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         uuid1 = ctx.uuid4()  # counter=0
         uuid2 = ctx.uuid4()  # counter=1
@@ -270,12 +269,12 @@ class TestDeterministicContextMixin:
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # First execution
-        ctx1 = MockDeterministicContext("test-instance", dt)
+        ctx1 = mock_deterministic_context("test-instance", dt)
         uuid1_first = ctx1.uuid4()  # counter=0
         uuid1_second = ctx1.uuid4()  # counter=1
 
         # Replay - new context, counter resets
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
         uuid2_first = ctx2.uuid4()  # counter=0
         uuid2_second = ctx2.uuid4()  # counter=1
 
@@ -286,7 +285,7 @@ class TestDeterministicContextMixin:
     def test_new_guid_is_alias_for_uuid4(self):
         """Test that new_guid() is an alias for uuid4()."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         guid1 = ctx.new_guid()  # counter=0
         guid2 = ctx.uuid4()  # counter=1
@@ -299,14 +298,14 @@ class TestDeterministicContextMixin:
         assert guid1 != guid2  # Different due to counter
 
         # Verify determinism - same counter produces same UUID
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
         guid3 = ctx2.new_guid()  # counter=0
         assert guid3 == guid1  # Same as first call
 
     def test_random_string_generates_string_of_correct_length(self):
         """Test that random_string() generates string of specified length."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         s = ctx.random_string(10)
         assert len(s) == 10
@@ -314,8 +313,8 @@ class TestDeterministicContextMixin:
     def test_random_string_is_deterministic(self):
         """Test that random_string() produces consistent results."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx1 = MockDeterministicContext("test-instance", dt)
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx1 = mock_deterministic_context("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
 
         s1 = ctx1.random_string(20)
         s2 = ctx2.random_string(20)
@@ -324,7 +323,7 @@ class TestDeterministicContextMixin:
     def test_random_string_uses_default_alphabet(self):
         """Test that random_string() uses alphanumeric characters by default."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         s = ctx.random_string(100)
         assert all(c.isalnum() for c in s)
@@ -332,7 +331,7 @@ class TestDeterministicContextMixin:
     def test_random_string_uses_custom_alphabet(self):
         """Test that random_string() respects custom alphabet."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         s = ctx.random_string(50, alphabet="ABC")
         assert all(c in "ABC" for c in s)
@@ -340,7 +339,7 @@ class TestDeterministicContextMixin:
     def test_random_string_raises_on_negative_length(self):
         """Test that random_string() raises ValueError for negative length."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         with pytest.raises(ValueError, match="length must be non-negative"):
             ctx.random_string(-1)
@@ -348,7 +347,7 @@ class TestDeterministicContextMixin:
     def test_random_string_raises_on_empty_alphabet(self):
         """Test that random_string() raises ValueError for empty alphabet."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         with pytest.raises(ValueError, match="alphabet must not be empty"):
             ctx.random_string(10, alphabet="")
@@ -356,7 +355,7 @@ class TestDeterministicContextMixin:
     def test_random_string_handles_zero_length(self):
         """Test that random_string() handles zero length correctly."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         s = ctx.random_string(0)
         assert s == ""
@@ -364,7 +363,7 @@ class TestDeterministicContextMixin:
     def test_random_int_generates_int_in_range(self):
         """Test that random_int() generates integer in specified range."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         for _ in range(10):
             val = ctx.random_int(10, 20)
@@ -373,8 +372,8 @@ class TestDeterministicContextMixin:
     def test_random_int_is_deterministic(self):
         """Test that random_int() produces consistent results."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx1 = MockDeterministicContext("test-instance", dt)
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx1 = mock_deterministic_context("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
 
         val1 = ctx1.random_int(0, 1000)
         val2 = ctx2.random_int(0, 1000)
@@ -383,7 +382,7 @@ class TestDeterministicContextMixin:
     def test_random_int_uses_default_range(self):
         """Test that random_int() uses default range when not specified."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         val = ctx.random_int()
         assert 0 <= val <= 2**31 - 1
@@ -391,7 +390,7 @@ class TestDeterministicContextMixin:
     def test_random_int_raises_on_invalid_range(self):
         """Test that random_int() raises ValueError when min > max."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         with pytest.raises(ValueError, match="min_value must be <= max_value"):
             ctx.random_int(20, 10)
@@ -399,7 +398,7 @@ class TestDeterministicContextMixin:
     def test_random_int_handles_same_min_and_max(self):
         """Test that random_int() handles case where min equals max."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         val = ctx.random_int(42, 42)
         assert val == 42
@@ -407,7 +406,7 @@ class TestDeterministicContextMixin:
     def test_random_choice_picks_from_sequence(self):
         """Test that random_choice() picks element from sequence."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         choices = ["a", "b", "c", "d", "e"]
         result = ctx.random_choice(choices)
@@ -416,8 +415,8 @@ class TestDeterministicContextMixin:
     def test_random_choice_is_deterministic(self):
         """Test that random_choice() produces consistent results."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx1 = MockDeterministicContext("test-instance", dt)
-        ctx2 = MockDeterministicContext("test-instance", dt)
+        ctx1 = mock_deterministic_context("test-instance", dt)
+        ctx2 = mock_deterministic_context("test-instance", dt)
 
         choices = list(range(100))
         result1 = ctx1.random_choice(choices)
@@ -427,7 +426,7 @@ class TestDeterministicContextMixin:
     def test_random_choice_raises_on_empty_sequence(self):
         """Test that random_choice() raises IndexError for empty sequence."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         with pytest.raises(IndexError, match="Cannot choose from empty sequence"):
             ctx.random_choice([])
@@ -435,20 +434,20 @@ class TestDeterministicContextMixin:
     def test_random_choice_works_with_different_sequence_types(self):
         """Test that random_choice() works with various sequence types."""
         dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
 
         # List
         result = ctx.random_choice([1, 2, 3])
         assert result in [1, 2, 3]
 
         # Reset context for deterministic behavior
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
         # Tuple
         result = ctx.random_choice((1, 2, 3))
         assert result in (1, 2, 3)
 
         # Reset context for deterministic behavior
-        ctx = MockDeterministicContext("test-instance", dt)
+        ctx = mock_deterministic_context("test-instance", dt)
         # String
         result = ctx.random_choice("abc")
         assert result in "abc"
