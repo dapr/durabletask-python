@@ -130,5 +130,6 @@ dmypy.json
 
 # IDEs
 .idea
+.vscode
 
 coverage.lcov
