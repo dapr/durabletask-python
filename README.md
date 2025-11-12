@@ -126,9 +126,96 @@ Orchestrations can be continued as new using the `continue_as_new` API. This API
 
 Orchestrations can be suspended using the `suspend_orchestration` client API and will remain suspended until resumed using the `resume_orchestration` client API. A suspended orchestration will stop processing new events, but will continue to buffer any that happen to arrive until resumed, ensuring that no data is lost. An orchestration can also be terminated using the `terminate_orchestration` client API. Terminated orchestrations will stop processing new events and will discard any buffered events.
 
-### Retry policies (TODO)
+### Retry policies
 
 Orchestrations can specify retry policies for activities and sub-orchestrations. These policies control how many times and how frequently an activity or sub-orchestration will be retried in the event of a transient error.
+
+#### Creating a retry policy
+
+```python
+from datetime import timedelta
+from durabletask import task
+
+retry_policy = task.RetryPolicy(
+    first_retry_interval=timedelta(seconds=1),     # Initial delay before first retry
+    max_number_of_attempts=5,                      # Maximum total attempts (includes first attempt)
+    backoff_coefficient=2.0,                       # Exponential backoff multiplier (must be >= 1)
+    max_retry_interval=timedelta(seconds=30),      # Cap on retry delay
+    retry_timeout=timedelta(minutes=5),            # Total time limit for all retries (optional)
+)
+```
+
+**Notes:**
+- `max_number_of_attempts` **includes the initial attempt**. For example, `max_number_of_attempts=5` means 1 initial attempt + up to 4 retries.
+- `retry_timeout` is optional. If omitted or set to `None`, retries continue until `max_number_of_attempts` is reached.
+- `backoff_coefficient` controls exponential backoff: delay = `first_retry_interval * (backoff_coefficient ^ retry_number)`, capped by `max_retry_interval`.
+- `non_retryable_error_types` (optional) can specify additional exception types to treat as non-retryable (e.g., `[ValueError, TypeError]`). `NonRetryableError` is always non-retryable regardless of this setting.
+
+#### Using retry policies
+
+Apply retry policies to activities or sub-orchestrations:
+
+```python
+def my_orchestrator(ctx: task.OrchestrationContext, input):
+    # Retry an activity
+    result = yield ctx.call_activity(my_activity, input=data, retry_policy=retry_policy)
+    
+    # Retry a sub-orchestration
+    result = yield ctx.call_sub_orchestrator(child_orchestrator, input=data, retry_policy=retry_policy)
+```
+
+#### Non-retryable errors
+
+For errors that should not be retried (e.g., validation failures, permanent errors), raise a `NonRetryableError`:
+
+```python
+from durabletask.task import NonRetryableError
+
+def my_activity(ctx: task.ActivityContext, input):
+    if input is None:
+        # This error will bypass retry logic and fail immediately
+        raise NonRetryableError("Input cannot be None")
+    
+    # Transient errors (network, timeouts, etc.) will be retried
+    return call_external_service(input)
+```
+
+Even with a retry policy configured, `NonRetryableError` will fail immediately without retrying.
+
+#### Error type matching behavior
+
+**Important:** Error type matching uses **exact class name comparison**, not `isinstance()` checks. This is because exception objects are serialized to gRPC protobuf messages, where only the class name (as a string) survives serialization.
+
+**Key implications:**
+
+- **Not inheritance-aware**: If you specify `ValueError` in `non_retryable_error_types`, it will only match exceptions with the exact class name `"ValueError"`. A custom subclass like `CustomValueError(ValueError)` will NOT match.
+- **Workaround**: List all exception types explicitly, including subclasses you want to handle.
+- **Built-in exception**: `NonRetryableError` is always treated as non-retryable, matched by the name `"NonRetryableError"`.
+
+**Example:**
+
+```python
+from datetime import timedelta
+from durabletask import task
+
+# Custom exception hierarchy
+class ValidationError(ValueError):
+    pass
+
+#  This policy ONLY matches exact "ValueError" by name
+retry_policy = task.RetryPolicy(
+    first_retry_interval=timedelta(seconds=1),
+    max_number_of_attempts=3,
+    non_retryable_error_types=[ValueError]  # Won't match ValidationError subclass!
+)
+
+#  To handle both, list them explicitly:
+retry_policy = task.RetryPolicy(
+    first_retry_interval=timedelta(seconds=1),
+    max_number_of_attempts=3,
+    non_retryable_error_types=[ValueError, ValidationError]  # Both converted to name strings
+)
+```
 
 ## Getting Started
 
@@ -194,7 +281,7 @@ Certain aspects like multi-app activities require the full dapr runtime to be ru
 ```shell
 dapr init || true
 
-dapr run --app-id test-app --dapr-grpc-port  4001 --components-path ./examples/components/
+dapr run --app-id test-app --dapr-grpc-port  4001 --resources-path ./examples/components/
 ```
 
 To run the E2E tests on a specific python version (eg: 3.11), run the following command from the project root:

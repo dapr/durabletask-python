@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 from durabletask.internal.shared import get_default_host_address, get_grpc_channel
@@ -140,3 +140,17 @@ def test_sync_channel_passes_base_options_and_max_lengths():
         assert ("grpc.max_send_message_length", 1234) in opts
         assert ("grpc.max_receive_message_length", 5678) in opts
         assert ("grpc.primary_user_agent", "durabletask-tests") in opts
+
+
+def test_taskhub_client_close_handles_exceptions():
+    """Test that close() handles exceptions gracefully (edge case not easily testable in E2E)."""
+    with patch("durabletask.internal.shared.get_grpc_channel") as mock_get_channel:
+        mock_channel = MagicMock()
+        mock_channel.close.side_effect = Exception("close failed")
+        mock_get_channel.return_value = mock_channel
+
+        from durabletask import client
+
+        task_hub_client = client.TaskHubGrpcClient()
+        # Should not raise exception
+        task_hub_client.close()
