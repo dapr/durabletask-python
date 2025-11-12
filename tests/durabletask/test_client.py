@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 from durabletask.internal.shared import get_default_host_address, get_grpc_channel

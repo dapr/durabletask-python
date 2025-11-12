@@ -244,13 +244,13 @@ class NonRetryableError(Exception):
 
 
 def is_error_non_retryable(error_type: str, policy: RetryPolicy) -> bool:
-    """ Checks whether an error type is non-retryable."""
+    """Checks whether an error type is non-retryable."""
     is_non_retryable = False
     if error_type == "NonRetryableError":
         is_non_retryable = True
     elif (
-            policy.non_retryable_error_types is not None
-            and error_type in policy.non_retryable_error_types
+        policy.non_retryable_error_types is not None
+        and error_type in policy.non_retryable_error_types
     ):
         is_non_retryable = True
     return is_non_retryable

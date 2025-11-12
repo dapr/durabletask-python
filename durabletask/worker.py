@@ -21,7 +21,6 @@ import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import task
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
-from durabletask.task import RetryPolicy
 
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
@@ -448,7 +447,7 @@ class TaskHubGrpcWorker:
                         else:
                             self._logger.warning(f"Unexpected work item type: {request_type}")
                     except grpc.RpcError:
-                        raise # let it be captured/parsed by outer except and avoid noisy log
+                        raise  # let it be captured/parsed by outer except and avoid noisy log
                     except Exception as e:
                         self._logger.warning(f"Error in work item stream: {e}")
                         raise e
@@ -1144,7 +1143,9 @@ class _OrchestrationExecutor:
                 if isinstance(activity_task, task.RetryableTask):
                     if activity_task._retry_policy is not None:
                         # Check for non-retryable errors by type name
-                        if task.is_error_non_retryable(event.taskFailed.failureDetails.errorType, activity_task._retry_policy):
+                        if task.is_error_non_retryable(
+                            event.taskFailed.failureDetails.errorType, activity_task._retry_policy
+                        ):
                             activity_task.fail(
                                 f"{ctx.instance_id}: Activity task #{task_id} failed: {event.taskFailed.failureDetails.errorMessage}",
                                 event.taskFailed.failureDetails,
@@ -1219,7 +1220,9 @@ class _OrchestrationExecutor:
                 if isinstance(sub_orch_task, task.RetryableTask):
                     if sub_orch_task._retry_policy is not None:
                         # Check for non-retryable errors by type name
-                        if task.is_error_non_retryable(failedEvent.failureDetails.errorType, sub_orch_task._retry_policy):
+                        if task.is_error_non_retryable(
+                            failedEvent.failureDetails.errorType, sub_orch_task._retry_policy
+                        ):
                             sub_orch_task.fail(
                                 f"Sub-orchestration task #{task_id} failed: {failedEvent.failureDetails.errorMessage}",
                                 failedEvent.failureDetails,
