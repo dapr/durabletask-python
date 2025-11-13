@@ -58,7 +58,6 @@ def test_empty_orchestration():
     with worker.TaskHubGrpcWorker(channel_options=channel_options) as w:
         w.add_orchestrator(empty_orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         # set a custom max send length option
         c = client.TaskHubGrpcClient(channel_options=channel_options)
@@ -98,7 +97,6 @@ def test_activity_sequence():
         w.add_orchestrator(sequence)
         w.add_activity(plus_one)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as task_hub_client:
             id = task_hub_client.schedule_new_orchestration(sequence, input=1)
@@ -143,7 +141,6 @@ def test_activity_error_handling():
         w.add_activity(throw)
         w.add_activity(increment_counter)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as task_hub_client:
             id = task_hub_client.schedule_new_orchestration(orchestrator, input=1)
@@ -186,7 +183,6 @@ def test_sub_orchestration_fan_out():
         w.add_orchestrator(orchestrator_child)
         w.add_orchestrator(parent_orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as task_hub_client:
             id = task_hub_client.schedule_new_orchestration(parent_orchestrator, input=10)
@@ -209,7 +205,6 @@ def test_wait_for_multiple_external_events():
     with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         task_hub_client = client.TaskHubGrpcClient()
@@ -239,7 +234,6 @@ def test_wait_for_external_event_timeout(raise_event: bool):
     with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         # Start the orchestration and immediately raise events to it.
         with client.TaskHubGrpcClient() as task_hub_client:
@@ -265,7 +259,7 @@ def test_suspend_and_resume():
     with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
+
         with client.TaskHubGrpcClient() as task_hub_client:
             id = task_hub_client.schedule_new_orchestration(orchestrator)
             state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
@@ -304,7 +298,7 @@ def test_terminate():
     with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
+
         with client.TaskHubGrpcClient() as task_hub_client:
             id = task_hub_client.schedule_new_orchestration(orchestrator)
             state = task_hub_client.wait_for_orchestration_start(id, timeout=30)
@@ -348,7 +342,7 @@ def test_terminate_recursive():
             w.add_orchestrator(orchestrator_child)
             w.add_orchestrator(parent_orchestrator)
             w.start()
-            w.wait_for_ready(timeout=10)
+
             with client.TaskHubGrpcClient() as task_hub_client:
                 instance_id = task_hub_client.schedule_new_orchestration(
                     parent_orchestrator, input=5
@@ -397,7 +391,6 @@ def test_continue_as_new():
     with worker.TaskHubGrpcWorker(stop_timeout=2.0) as w:
         w.add_orchestrator(orchestrator)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator, input=0)
@@ -498,7 +491,6 @@ def test_retry_policies():
         w.add_orchestrator(child_orchestrator_with_retry)
         w.add_activity(throw_activity_with_retry)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(parent_orchestrator_with_retry)
@@ -529,7 +521,6 @@ def test_retry_policies():
         w.add_orchestrator(orchestrator_with_non_retryable)
         w.add_activity(throw_non_retryable)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(orchestrator_with_non_retryable)
@@ -568,7 +559,6 @@ def test_retry_timeout():
         w.add_orchestrator(mock_orchestrator)
         w.add_activity(throw_activity)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         task_hub_client = client.TaskHubGrpcClient()
         id = task_hub_client.schedule_new_orchestration(mock_orchestrator)

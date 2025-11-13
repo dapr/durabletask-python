@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from durabletask import client
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 from durabletask.internal.shared import get_default_host_address, get_grpc_channel
 
@@ -149,8 +150,18 @@ def test_taskhub_client_close_handles_exceptions():
         mock_channel.close.side_effect = Exception("close failed")
         mock_get_channel.return_value = mock_channel
 
-        from durabletask import client
-
         task_hub_client = client.TaskHubGrpcClient()
         # Should not raise exception
         task_hub_client.close()
+
+
+def test_taskhub_client_close_closes_channel_handles_exceptions():
+    """Test that close() closes the channel and handles exceptions gracefully."""
+    with patch("durabletask.internal.shared.get_grpc_channel") as mock_get_channel:
+        mock_channel = MagicMock()
+        mock_channel.close.side_effect = Exception("close failed")
+        mock_get_channel.return_value = mock_channel
+
+        task_hub_client = client.TaskHubGrpcClient()
+        task_hub_client.close()
+        mock_channel.close.assert_called_once()

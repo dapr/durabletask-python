@@ -253,8 +253,6 @@ class TaskHubGrpcWorker:
             self._interceptors = None
 
         self._async_worker_manager = _AsyncWorkerManager(self._concurrency_options)
-        # Readiness flag set once the worker has an active stream to the sidecar
-        self._ready = Event()
 
     @property
     def concurrency_options(self) -> ConcurrencyOptions:
@@ -357,8 +355,6 @@ class TaskHubGrpcWorker:
                     pass
             current_channel = None
             current_stub = None
-            # No longer ready if connection is gone
-            self._ready.clear()
 
         def should_invalidate_connection(rpc_error):
             error_code = rpc_error.code()  # type: ignore
@@ -398,8 +394,6 @@ class TaskHubGrpcWorker:
                 self._logger.info(
                     f"Successfully connected to {self._host_address}. Waiting for work items..."
                 )
-                # Signal readiness once stream is established
-                self._ready.set()
 
                 # Use a thread to read from the blocking gRPC stream and forward to asyncio
                 import queue
@@ -508,14 +502,34 @@ class TaskHubGrpcWorker:
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")
         self._is_running = False
-        self._ready.clear()
 
-    def wait_for_ready(self, timeout: Optional[float] = None) -> bool:
-        """Block until the worker has an active connection to the sidecar.
-
-        Returns True if the worker became ready within the timeout; otherwise False.
-        """
-        return self._ready.wait(timeout)
+    def _handle_grpc_execution_error(self, rpc_error: grpc.RpcError, request_type: str):
+        """Handle a gRPC execution error during shutdown or benign condition."""
+        # During shutdown or if the instance was terminated, the channel may be close
+        # or the instance may no longer be recognized by the sidecar. Treat these as benign
+        # to reduce noisy logging when shutting down.
+        details = str(rpc_error).lower()
+        benign_errors = {
+            grpc.StatusCode.CANCELLED,
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.StatusCode.UNKNOWN,
+        }
+        if (
+            self._shutdown.is_set()
+            and rpc_error.code() in benign_errors
+            or (
+                "unknown instance id/task id combo" in details
+                or "channel closed" in details
+                or "locally cancelled by application" in details
+            )
+        ):
+            self._logger.debug(
+                f"Ignoring gRPC {request_type} execution error during shutdown/benign condition: {rpc_error}"
+            )
+        else:
+            self._logger.exception(
+                f"Failed to execute gRPC {request_type} execution error: {rpc_error}"
+            )
 
     def _execute_orchestrator(
         self,
@@ -551,24 +565,7 @@ class TaskHubGrpcWorker:
         try:
             stub.CompleteOrchestratorTask(res)
         except grpc.RpcError as rpc_error:  # type: ignore
-            # During shutdown or if the instance was terminated, the channel may be closed
-            # or the instance may no longer be recognized by the sidecar. Treat these as benign
-            # to reduce noisy logging when shutting down.
-            code = rpc_error.code()  # type: ignore
-            details = str(rpc_error)
-            benign = (
-                code in {grpc.StatusCode.CANCELLED, grpc.StatusCode.UNAVAILABLE}
-                or "unknown instance ID/task ID combo" in details
-                or "Channel closed" in details
-            )
-            if self._shutdown.is_set() or benign:
-                self._logger.debug(
-                    f"Ignoring orchestrator completion delivery error during shutdown/benign condition: {rpc_error}"
-                )
-            else:
-                self._logger.exception(
-                    f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {rpc_error}"
-                )
+            self._handle_grpc_execution_error(rpc_error, "orchestrator")
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
@@ -601,26 +598,7 @@ class TaskHubGrpcWorker:
         try:
             stub.CompleteActivityTask(res)
         except grpc.RpcError as rpc_error:  # type: ignore
-            # Treat common shutdown/termination races as benign to avoid noisy logs
-            code = rpc_error.code()  # type: ignore
-            details = str(rpc_error)
-            benign = code in {
-                grpc.StatusCode.CANCELLED,
-                grpc.StatusCode.UNAVAILABLE,
-                grpc.StatusCode.UNKNOWN,
-            } and (
-                "unknown instance ID/task ID combo" in details
-                or "Channel closed" in details
-                or "Locally cancelled by application" in details
-            )
-            if self._shutdown.is_set() or benign:
-                self._logger.debug(
-                    f"Ignoring activity completion delivery error during shutdown/benign condition: {rpc_error}"
-                )
-            else:
-                self._logger.exception(
-                    f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {rpc_error}"
-                )
+            self._handle_grpc_execution_error(rpc_error, "activity")
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
