@@ -32,6 +32,7 @@ class OrchestrationStatus(Enum):
     CONTINUED_AS_NEW = pb.ORCHESTRATION_STATUS_CONTINUED_AS_NEW
     PENDING = pb.ORCHESTRATION_STATUS_PENDING
     SUSPENDED = pb.ORCHESTRATION_STATUS_SUSPENDED
+    CANCELED = pb.ORCHESTRATION_STATUS_CANCELED
 
     def __str__(self):
         return helpers.get_orchestration_status_str(self.value)

@@ -36,6 +36,7 @@ def _wait_until_terminal(
             client.OrchestrationStatus.COMPLETED,
             client.OrchestrationStatus.FAILED,
             client.OrchestrationStatus.TERMINATED,
+            client.OrchestrationStatus.CANCELED,
         ):
             return st
         time.sleep(delay)
