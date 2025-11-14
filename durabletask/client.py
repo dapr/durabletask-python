@@ -32,6 +32,7 @@ class OrchestrationStatus(Enum):
     CONTINUED_AS_NEW = pb.ORCHESTRATION_STATUS_CONTINUED_AS_NEW
     PENDING = pb.ORCHESTRATION_STATUS_PENDING
     SUSPENDED = pb.ORCHESTRATION_STATUS_SUSPENDED
+    CANCELED = pb.ORCHESTRATION_STATUS_CANCELED
 
     def __str__(self):
         return helpers.get_orchestration_status_str(self.value)
@@ -127,8 +128,27 @@ class TaskHubGrpcClient:
             interceptors=interceptors,
             options=channel_options,
         )
+        self._channel = channel
         self._stub = stubs.TaskHubSidecarServiceStub(channel)
         self._logger = shared.get_logger("client", log_handler, log_formatter)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.close()
+        finally:
+            return False
+
+    def close(self) -> None:
+        """Close the underlying gRPC channel."""
+        try:
+            # grpc.Channel.close() is idempotent
+            self._channel.close()
+        except Exception:
+            # Best-effort cleanup
+            pass
 
     def schedule_new_orchestration(
         self,
