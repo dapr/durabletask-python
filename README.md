@@ -11,6 +11,38 @@ This repo contains a Python client SDK for use with the [Durable Task Framework 
 > Note that this project is **not** currently affiliated with the [Durable Functions](https://docs.microsoft.com/azure/azure-functions/durable/durable-functions-overview) project for Azure Functions. If you are looking for a Python SDK for Durable Functions, please see [this repo](https://github.com/Azure/azure-functions-durable-python).
 
 
+## Minimal worker setup
+
+To execute orchestrations and activities you must run a worker that connects to the Dapr Workflow sidecar and dispatches work on background threads:
+
+```python
+from durabletask.worker import TaskHubGrpcWorker
+
+worker = TaskHubGrpcWorker(host_address="localhost:4001")
+
+worker.add_orchestrator(say_hello)
+worker.add_activity(hello_activity)
+
+try:
+    worker.start()
+    # Worker runs in the background and processes work until stopped
+finally:
+    worker.stop()
+```
+
+Always stop the worker when you're finished. The worker keeps polling threads alive; if you skip `stop()` they continue running and can prevent your process from shutting down cleanly after failures. You can rely on the context manager form to guarantee cleanup:
+
+```python
+from durabletask.worker import TaskHubGrpcWorker
+
+with TaskHubGrpcWorker(host_address="localhost:4001") as worker:
+    worker.add_orchestrator(say_hello)
+    worker.add_activity(hello_activity)
+    worker.start()
+    # worker.stop() is called automatically on exit
+```
+
+
 ## Supported patterns
 
 The following orchestration patterns are currently supported.
