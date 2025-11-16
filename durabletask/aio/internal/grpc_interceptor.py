@@ -40,13 +40,14 @@ class DefaultClientInterceptorImpl(
             metadata = []
 
         metadata.extend(self._metadata)
+        compression = getattr(client_call_details, "compression", None)
         return _ClientCallDetails(
             client_call_details.method,
             client_call_details.timeout,
             metadata,
             client_call_details.credentials,
             client_call_details.wait_for_ready,
-            client_call_details.compression,
+            compression,
         )
 
     async def intercept_unary_unary(self, continuation, client_call_details, request):
