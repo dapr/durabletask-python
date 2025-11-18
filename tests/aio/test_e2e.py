@@ -95,15 +95,6 @@ class TestAsyncWorkflowE2E:
 
         # Start worker and wait for ready
         cls.worker.start()
-        try:
-            if hasattr(cls.worker, "wait_for_ready"):
-                try:
-                    # type: ignore[attr-defined]
-                    cls.worker.wait_for_ready(timeout=10)
-                except TypeError:
-                    cls.worker.wait_for_ready(10)  # type: ignore[misc]
-        except Exception:
-            pass
 
     @classmethod
     def teardown_class(cls):
@@ -731,7 +722,6 @@ def test_async_activity_retry_with_backoff():
         worker.add_orchestrator(retry_orchestrator)
         worker.add_activity(failing_activity)
         worker.start()
-        worker.wait_for_ready(timeout=10)
 
         client = TaskHubGrpcClient()
         instance_id = client.schedule_new_orchestration(retry_orchestrator)
@@ -784,7 +774,6 @@ def test_async_sub_orchestrator_retry():
         worker.add_orchestrator(child_orchestrator)
         worker.add_activity(failing_activity)
         worker.start()
-        worker.wait_for_ready(timeout=10)
 
         client = TaskHubGrpcClient()
         instance_id = client.schedule_new_orchestration(parent_orchestrator)
@@ -829,7 +818,6 @@ def test_async_retry_timeout():
         worker.add_orchestrator(timeout_orchestrator)
         worker.add_activity(failing_activity)
         worker.start()
-        worker.wait_for_ready(timeout=10)
 
         client = TaskHubGrpcClient()
         instance_id = client.schedule_new_orchestration(timeout_orchestrator)
@@ -867,7 +855,6 @@ def test_async_non_retryable_error():
         worker.add_orchestrator(non_retryable_orchestrator)
         worker.add_activity(non_retryable_activity)
         worker.start()
-        worker.wait_for_ready(timeout=10)
 
         client = TaskHubGrpcClient()
         instance_id = client.schedule_new_orchestration(non_retryable_orchestrator)
@@ -909,7 +896,6 @@ def test_async_successful_retry():
         worker.add_orchestrator(successful_retry_orchestrator)
         worker.add_activity(eventually_succeeds_activity)
         worker.start()
-        worker.wait_for_ready(timeout=10)
 
         client = TaskHubGrpcClient()
         instance_id = client.schedule_new_orchestration(successful_retry_orchestrator)
@@ -934,7 +920,6 @@ def test_async_suspend_and_resume_e2e():
     with worker.TaskHubGrpcWorker() as w:
         w.add_orchestrator(orch)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as c:
             id = c.schedule_new_orchestration(orch)
@@ -973,7 +958,6 @@ def test_async_sub_orchestrator_e2e():
         w.add_orchestrator(child)
         w.add_orchestrator(parent)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as c:
             id = c.schedule_new_orchestration(parent, input=3)
@@ -1047,7 +1031,6 @@ def test_now_with_sequence_ordering_e2e():
         w.add_orchestrator(timestamp_ordering_workflow)
         w.add_activity(simple_activity)
         w.start()
-        w.wait_for_ready(timeout=10)
 
         with client.TaskHubGrpcClient() as c:
             instance_id = c.schedule_new_orchestration(timestamp_ordering_workflow)
