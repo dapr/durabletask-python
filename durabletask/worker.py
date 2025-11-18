@@ -6,11 +6,13 @@ import inspect
 import logging
 import os
 import random
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Generator, Optional, Sequence, TypeVar, Union
+from typing import Any, Callable, Generator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2
@@ -20,6 +22,9 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import deterministic, task
+
+# TODO: this is part of asyncio
+from durabletask.aio import AsyncWorkflowContext, CoroutineOrchestratorRunner
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -95,6 +100,44 @@ class _Registry:
             raise ValueError(f"A '{name}' orchestrator already exists.")
 
         self.orchestrators[name] = fn
+
+    # Internal helper: register async orchestrators directly on the registry.
+    # Primarily for unit tests and direct executor usage. For production, prefer
+    # using TaskHubGrpcWorker.add_async_orchestrator(), which wraps and registers
+    # on this registry under the hood.
+    # TODO: this is part of asyncio
+    def add_async_orchestrator(
+        self,
+        fn: Callable[[AsyncWorkflowContext, Any], Any],
+        *,
+        name: Optional[str] = None,
+        sandbox_mode: str = "off",
+    ) -> str:
+        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+
+        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+            async_ctx = AsyncWorkflowContext(ctx)
+            gen = runner.to_generator(async_ctx, input_data)
+            result = None
+            while True:
+                try:
+                    task_obj = gen.send(result)
+                except StopIteration as stop:
+                    return stop.value
+                try:
+                    result = yield task_obj
+                except Exception as e:
+                    try:
+                        result = gen.throw(e)
+                    except StopIteration as stop:
+                        return stop.value
+
+        if name is None:
+            name = task.get_name(fn) if hasattr(fn, "__name__") else None
+        if not name:
+            raise ValueError("A non-empty orchestrator name is required.")
+        self.add_named_orchestrator(name, generator_orchestrator)
+        return name
 
     def get_orchestrator(self, name: str) -> Optional[task.Orchestrator]:
         return self.orchestrators.get(name)
@@ -266,10 +309,62 @@ class TaskHubGrpcWorker:
         self.stop()
 
     def add_orchestrator(self, fn: task.Orchestrator) -> str:
-        """Registers an orchestrator function with the worker."""
+        """Registers an orchestrator function with the worker.
+
+        Automatically detects async functions and registers them as async orchestrators.
+        """
         if self._is_running:
             raise RuntimeError("Orchestrators cannot be added while the worker is running.")
-        return self._registry.add_orchestrator(fn)
+
+        # Auto-detect coroutine functions and delegate to async registration
+        # TODO: this is part of asyncio
+        if inspect.iscoroutinefunction(fn):
+            return self.add_async_orchestrator(fn)
+        else:
+            return self._registry.add_orchestrator(fn)
+
+    # Async orchestrator support (opt-in)
+    # TODO: this is part of asyncio
+    def add_async_orchestrator(
+        self,
+        fn: Callable[[AsyncWorkflowContext, Any], Any],
+        *,
+        name: Optional[str] = None,
+        sandbox_mode: str = "off",
+    ) -> str:
+        """Registers an async orchestrator by wrapping it with the coroutine driver.
+
+        The provided coroutine function must only await awaitables created from
+        `AsyncWorkflowContext` (activities, timers, external events, when_any/all).
+        """
+        if self._is_running:
+            raise RuntimeError("Orchestrators cannot be added while the worker is running.")
+
+        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+
+        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+            async_ctx = AsyncWorkflowContext(ctx)
+            gen = runner.to_generator(async_ctx, input_data)
+            result = None
+            while True:
+                try:
+                    task_obj = gen.send(result)
+                except StopIteration as stop:
+                    return stop.value
+                try:
+                    result = yield task_obj
+                except Exception as e:
+                    try:
+                        result = gen.throw(e)
+                    except StopIteration as stop:
+                        return stop.value
+
+        if name is None:
+            name = task.get_name(fn) if hasattr(fn, "__name__") else None
+        if name is None:
+            raise ValueError("A non-empty orchestrator name is required.")
+        self._registry.add_named_orchestrator(name, generator_orchestrator)
+        return name
 
     def add_activity(self, fn: task.Activity) -> str:
         """Registers an activity function with the worker."""
@@ -615,6 +710,7 @@ class _RuntimeOrchestrationContext(
         super().__init__()
         self._generator = None
         self._is_replaying = True
+        self._is_suspended = False
         self._is_complete = False
         self._result = None
         self._pending_actions: dict[int, pb.OrchestratorAction] = {}
@@ -764,6 +860,10 @@ class _RuntimeOrchestrationContext(
     @property
     def is_replaying(self) -> bool:
         return self._is_replaying
+
+    @property
+    def is_suspended(self) -> bool:
+        return self._is_suspended
 
     def set_custom_status(self, custom_status: Any) -> None:
         self._encoded_custom_status = (
@@ -992,7 +1092,7 @@ class _OrchestrationExecutor:
         return ExecutionResults(actions=actions, encoded_custom_status=ctx._encoded_custom_status)
 
     def process_event(self, ctx: _RuntimeOrchestrationContext, event: pb.HistoryEvent) -> None:
-        if self._is_suspended and _is_suspendable(event):
+        if self._is_suspended and _is_suspendable(event) and not ctx.is_replaying:
             # We are suspended, so we need to buffer this event until we are resumed
             self._suspended_events.append(event)
             return
@@ -1260,10 +1360,12 @@ class _OrchestrationExecutor:
                 if not self._is_suspended and not ctx.is_replaying:
                     self._logger.info(f"{ctx.instance_id}: Execution suspended.")
                 self._is_suspended = True
+                ctx._is_suspended = True
             elif event.HasField("executionResumed") and self._is_suspended:
                 if not ctx.is_replaying:
                     self._logger.info(f"{ctx.instance_id}: Resuming execution.")
                 self._is_suspended = False
+                ctx._is_suspended = False
                 for e in self._suspended_events:
                     self.process_event(ctx, e)
                 self._suspended_events = []

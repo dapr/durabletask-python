@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -208,10 +209,50 @@ class TaskHubGrpcClient:
     ) -> Optional[OrchestrationState]:
         req = pb.GetInstanceRequest(instanceId=instance_id, getInputsAndOutputs=fetch_payloads)
         try:
-            grpc_timeout = None if timeout == 0 else timeout
-            self._logger.info(
-                f"Waiting {'indefinitely' if timeout == 0 else f'up to {timeout}s'} for instance '{instance_id}' to complete."
-            )
+            # gRPC timeout mapping (pytest unit tests may pass None explicitly)
+            grpc_timeout = None if (timeout is None or timeout == 0) else timeout
+
+            # If timeout is None or 0, skip pre-checks/polling and call server-side wait directly
+            if grpc_timeout is None:
+                self._logger.info(
+                    f"Waiting {'indefinitely' if not timeout else f'up to {timeout}s'} for instance '{instance_id}' to complete."
+                )
+                res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
+                    req, timeout=grpc_timeout
+                )
+                state = new_orchestration_state(req.instanceId, res)
+                return state
+
+            # For positive timeout, best-effort pre-check and short polling to avoid long server waits
+            # https://grpc.io/docs/guides/performance/#python
+            try:
+                # First check if the orchestration is already completed
+                current_state = self.get_orchestration_state(
+                    instance_id, fetch_payloads=fetch_payloads
+                )
+                if current_state and helpers.is_orchestration_terminal_status(current_state.runtime_status):
+                    return current_state
+
+                # Poll for completion with exponential backoff to handle eventual consistency
+                poll_timeout = min(timeout, 10)
+                poll_start = time.time()
+                poll_interval = 0.1
+
+                while time.time() - poll_start < poll_timeout:
+                    current_state = self.get_orchestration_state(
+                        instance_id, fetch_payloads=fetch_payloads
+                    )
+
+                    if current_state and helpers.is_orchestration_terminal_status(current_state.runtime_status):
+                        return current_state
+
+                    time.sleep(poll_interval)
+                    poll_interval = min(poll_interval * 1.5, 1.0)  # Exponential backoff, max 1s
+            except Exception:
+                # Ignore pre-check/poll issues (e.g., mocked stubs in unit tests) and fall back
+                pass
+
+            self._logger.info(f"Waiting up to {timeout}s for instance '{instance_id}' to complete.")
             res: pb.GetInstanceResponse = self._stub.WaitForInstanceCompletion(
                 req, timeout=grpc_timeout
             )
