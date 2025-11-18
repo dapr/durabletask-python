@@ -7,6 +7,13 @@ test-unit:
 test-e2e:
 	pytest -m e2e --verbose
 
+coverage-clean:
+	rm -f .coverage .coverage.* coverage.xml
+
+coverage-all: coverage-clean
+	pytest -m "not e2e" --durations=0 --cov=durabletask --cov-branch --cov-report=term-missing --cov-report=xml
+	pytest -m e2e --durations=0 --cov=durabletask --cov-branch --cov-report=term-missing --cov-report=xml --cov-append
+
 install:
 	python3 -m pip install .
 
@@ -18,4 +25,4 @@ gen-proto:
 	python3 -m grpc_tools.protoc --proto_path=.  --python_out=. --pyi_out=. --grpc_python_out=. ./durabletask/internal/orchestrator_service.proto
 	rm durabletask/internal/*.proto
 
-.PHONY: init test-unit test-e2e gen-proto install
+.PHONY: init test-unit test-e2e coverage-clean coverage-all gen-proto install
