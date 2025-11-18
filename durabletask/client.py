@@ -230,7 +230,9 @@ class TaskHubGrpcClient:
                 current_state = self.get_orchestration_state(
                     instance_id, fetch_payloads=fetch_payloads
                 )
-                if current_state and helpers.is_orchestration_terminal_status(current_state.runtime_status):
+                if current_state and helpers.is_orchestration_terminal_status(
+                    current_state.runtime_status
+                ):
                     return current_state
 
                 # Poll for completion with exponential backoff to handle eventual consistency
@@ -243,7 +245,9 @@ class TaskHubGrpcClient:
                         instance_id, fetch_payloads=fetch_payloads
                     )
 
-                    if current_state and helpers.is_orchestration_terminal_status(current_state.runtime_status):
+                    if current_state and helpers.is_orchestration_terminal_status(
+                        current_state.runtime_status
+                    ):
                         return current_state
 
                     time.sleep(poll_interval)

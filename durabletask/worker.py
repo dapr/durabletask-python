@@ -6,8 +6,6 @@ import inspect
 import logging
 import os
 import random
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
