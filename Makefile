@@ -25,4 +25,4 @@ gen-proto:
 	python3 -m grpc_tools.protoc --proto_path=.  --python_out=. --pyi_out=. --grpc_python_out=. ./durabletask/internal/orchestrator_service.proto
 	rm durabletask/internal/*.proto
 
-.PHONY: init test-unit test-e2e coverage-clean coverage-unit coverage-e2e coverage-all gen-proto install
+.PHONY: init test-unit test-e2e coverage-clean coverage-all gen-proto install
