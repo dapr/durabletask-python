@@ -47,6 +47,11 @@ jobs:
         go install github.com/dapr/durabletask-go@main        
         durabletask-go --port 4001 &
         tox -e py${{ matrix.python-version }}-e2e
+    - name: Run examples
+      run: |
+        cd examples
+        durabletask-go --port 4001 &
+        ./tests.sh
   publish:
     needs: build
     if: startswith(github.ref, 'refs/tags/v')
