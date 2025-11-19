@@ -121,6 +121,16 @@ def new_sub_orchestration_failed_event(event_id: int, ex: Exception) -> pb.Histo
     )
 
 
+def is_orchestration_terminal_status(status: pb.OrchestrationStatus) -> bool:
+    # https://github.com/dapr/durabletask-go/blob/7f28b2408db77ed48b1b03ecc71624fc456ccca3/api/orchestration.go#L196-L201
+    return status in [
+        pb.ORCHESTRATION_STATUS_COMPLETED,
+        pb.ORCHESTRATION_STATUS_FAILED,
+        pb.ORCHESTRATION_STATUS_TERMINATED,
+        pb.ORCHESTRATION_STATUS_CANCELED,
+    ]
+
+
 def new_failure_details(ex: Exception) -> pb.TaskFailureDetails:
     return pb.TaskFailureDetails(
         errorType=type(ex).__name__,
