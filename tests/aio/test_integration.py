@@ -58,8 +58,6 @@ class FakeCtx:
         self.instance_id = "test-instance"
         self.is_replaying = False
         self.workflow_name = "test-workflow"
-        self.parent_instance_id = None
-        self.history_event_sequence = None
         self.is_suspended = False
 
     def call_activity(self, activity, *, input=None, retry_policy=None, metadata=None):
@@ -643,11 +641,11 @@ class TestSandboxIntegration:
         import time
         import uuid
 
-        from durabletask.aio import sandbox_scope
+        from durabletask.aio.sandbox import _sandbox_scope
 
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             # Should work with real AsyncWorkflowContext
             test_random = random.random()
             test_uuid = uuid.uuid4()
@@ -661,14 +659,15 @@ class TestSandboxIntegration:
         """Test that sandbox properly issues warnings."""
         import warnings
 
-        from durabletask.aio import NonDeterminismWarning, sandbox_scope
+        from durabletask.aio import NonDeterminismWarning
+        from durabletask.aio.sandbox import _sandbox_scope
 
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
 
-            with sandbox_scope(async_ctx, "best_effort"):
+            with _sandbox_scope(async_ctx, "best_effort"):
                 # This should potentially trigger warnings if non-deterministic calls are detected
                 pass
 
@@ -681,7 +680,7 @@ class TestSandboxIntegration:
         import random
         import time as time_module
 
-        from durabletask.aio import sandbox_scope
+        from durabletask.aio.sandbox import _sandbox_scope
 
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
         # Ensure debug mode is OFF for performance testing
@@ -695,7 +694,7 @@ class TestSandboxIntegration:
 
         # Measure with sandbox
         start = time_module.perf_counter()
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             for _ in range(1000):
                 random.random()
         sandbox_time = time_module.perf_counter() - start
@@ -708,16 +707,16 @@ class TestSandboxIntegration:
 
     def test_sandbox_mode_validation(self):
         """Test sandbox mode validation."""
-        from durabletask.aio import sandbox_scope
+        from durabletask.aio.sandbox import _sandbox_scope
 
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
         # Valid modes should work
         for mode in ["off", "best_effort", "strict"]:
-            with sandbox_scope(async_ctx, mode):
+            with _sandbox_scope(async_ctx, mode):
                 pass
 
         # Invalid mode should raise error
         with pytest.raises(ValueError):
-            with sandbox_scope(async_ctx, "invalid"):
+            with _sandbox_scope(async_ctx, "invalid"):
                 pass

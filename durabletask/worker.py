@@ -20,8 +20,6 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import deterministic, task
-
-# TODO: this is part of asyncio
 from durabletask.aio import AsyncWorkflowContext, CoroutineOrchestratorRunner
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
@@ -103,39 +101,55 @@ class _Registry:
     # Primarily for unit tests and direct executor usage. For production, prefer
     # using TaskHubGrpcWorker.add_async_orchestrator(), which wraps and registers
     # on this registry under the hood.
-    # TODO: this is part of asyncio
     def add_async_orchestrator(
         self,
-        fn: Callable[[AsyncWorkflowContext, Any], Any],
+        fn: Optional[Callable[[AsyncWorkflowContext, Any], Any]] = None,
         *,
         name: Optional[str] = None,
         sandbox_mode: str = "off",
-    ) -> str:
-        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+    ) -> Union[str, Callable[[Callable[[AsyncWorkflowContext, Any], Any]], str]]:
+        """Registers an async orchestrator by wrapping it with the coroutine driver.
 
-        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
-            async_ctx = AsyncWorkflowContext(ctx)
-            gen = runner.to_generator(async_ctx, input_data)
-            result = None
-            while True:
-                try:
-                    task_obj = gen.send(result)
-                except StopIteration as stop:
-                    return stop.value
-                try:
-                    result = yield task_obj
-                except Exception as e:
+        Can be used as:
+        - Simple decorator: @registry.add_async_orchestrator
+        - Decorator with args: @registry.add_async_orchestrator(sandbox_mode="best_effort")
+        - Direct call: registry.add_async_orchestrator(my_func, name="MyOrch")
+        """
+
+        def _register(func: Callable[[AsyncWorkflowContext, Any], Any]) -> str:
+            runner = CoroutineOrchestratorRunner(func, sandbox_mode=sandbox_mode)
+
+            def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+                async_ctx = AsyncWorkflowContext(ctx)
+                gen = runner.to_generator(async_ctx, input_data)
+                result = None
+                while True:
                     try:
-                        result = gen.throw(e)
+                        task_obj = gen.send(result)
                     except StopIteration as stop:
                         return stop.value
+                    try:
+                        result = yield task_obj
+                    except Exception as e:
+                        try:
+                            result = gen.throw(e)
+                        except StopIteration as stop:
+                            return stop.value
 
-        if name is None:
-            name = task.get_name(fn) if hasattr(fn, "__name__") else None
-        if not name:
-            raise ValueError("A non-empty orchestrator name is required.")
-        self.add_named_orchestrator(name, generator_orchestrator)
-        return name
+            orch_name = name
+            if orch_name is None:
+                orch_name = task.get_name(func) if hasattr(func, "__name__") else None
+            if not orch_name:
+                raise ValueError("A non-empty orchestrator name is required.")
+            self.add_named_orchestrator(orch_name, generator_orchestrator)
+            return orch_name
+
+        # If fn is provided, register directly (used as @decorator or direct call)
+        if fn is not None:
+            return _register(fn)
+
+        # If fn is None, return decorator (used as @decorator(args))
+        return _register
 
     def get_orchestrator(self, name: str) -> Optional[task.Orchestrator]:
         return self.orchestrators.get(name)
@@ -315,54 +329,68 @@ class TaskHubGrpcWorker:
             raise RuntimeError("Orchestrators cannot be added while the worker is running.")
 
         # Auto-detect coroutine functions and delegate to async registration
-        # TODO: this is part of asyncio
         if inspect.iscoroutinefunction(fn):
             return self.add_async_orchestrator(fn)
         else:
             return self._registry.add_orchestrator(fn)
 
     # Async orchestrator support (opt-in)
-    # TODO: this is part of asyncio
+
     def add_async_orchestrator(
         self,
-        fn: Callable[[AsyncWorkflowContext, Any], Any],
+        fn: Optional[Callable[[AsyncWorkflowContext, Any], Any]] = None,
         *,
         name: Optional[str] = None,
         sandbox_mode: str = "off",
-    ) -> str:
+    ) -> Union[str, Callable[[Callable[[AsyncWorkflowContext, Any], Any]], str]]:
         """Registers an async orchestrator by wrapping it with the coroutine driver.
 
         The provided coroutine function must only await awaitables created from
         `AsyncWorkflowContext` (activities, timers, external events, when_any/all).
+
+        Can be used as:
+        - Simple decorator: @worker.add_async_orchestrator
+        - Decorator with args: @worker.add_async_orchestrator(sandbox_mode="best_effort")
+        - Direct call: worker.add_async_orchestrator(my_func, name="MyOrch")
         """
-        if self._is_running:
-            raise RuntimeError("Orchestrators cannot be added while the worker is running.")
 
-        runner = CoroutineOrchestratorRunner(fn, sandbox_mode=sandbox_mode)
+        def _register(func: Callable[[AsyncWorkflowContext, Any], Any]) -> str:
+            if self._is_running:
+                raise RuntimeError("Orchestrators cannot be added while the worker is running.")
 
-        def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
-            async_ctx = AsyncWorkflowContext(ctx)
-            gen = runner.to_generator(async_ctx, input_data)
-            result = None
-            while True:
-                try:
-                    task_obj = gen.send(result)
-                except StopIteration as stop:
-                    return stop.value
-                try:
-                    result = yield task_obj
-                except Exception as e:
+            runner = CoroutineOrchestratorRunner(func, sandbox_mode=sandbox_mode)
+
+            def generator_orchestrator(ctx: task.OrchestrationContext, input_data: Any):
+                async_ctx = AsyncWorkflowContext(ctx)
+                gen = runner.to_generator(async_ctx, input_data)
+                result = None
+                while True:
                     try:
-                        result = gen.throw(e)
+                        task_obj = gen.send(result)
                     except StopIteration as stop:
                         return stop.value
+                    try:
+                        result = yield task_obj
+                    except Exception as e:
+                        try:
+                            result = gen.throw(e)
+                        except StopIteration as stop:
+                            return stop.value
 
-        if name is None:
-            name = task.get_name(fn) if hasattr(fn, "__name__") else None
-        if name is None:
-            raise ValueError("A non-empty orchestrator name is required.")
-        self._registry.add_named_orchestrator(name, generator_orchestrator)
-        return name
+            orch_name = name
+            if orch_name is None:
+                orch_name = task.get_name(func) if hasattr(func, "__name__") else None
+            if orch_name is None:
+                raise ValueError("A non-empty orchestrator name is required.")
+            self._registry.add_named_orchestrator(orch_name, generator_orchestrator)
+            return orch_name
+
+        # If fn is provided, register directly (used as @decorator or direct call)
+        if fn is not None:
+            return _register(fn)
+
+        # If fn is None, return decorator (used as @decorator(args))
+        return _register
 
     def add_activity(self, fn: task.Activity) -> str:
         """Registers an activity function with the worker."""
@@ -704,7 +732,7 @@ class _RuntimeOrchestrationContext(
     _generator: Optional[Generator[task.Task, Any, Any]]
     _previous_task: Optional[task.Task]
 
-    def __init__(self, instance_id: str):
+    def __init__(self, instance_id: str, workflow_name: Optional[str] = None):
         super().__init__()
         self._generator = None
         self._is_replaying = True
@@ -716,6 +744,7 @@ class _RuntimeOrchestrationContext(
         self._sequence_number = 0
         self._current_utc_datetime = datetime(1000, 1, 1)
         self._instance_id = instance_id
+        self._workflow_name = workflow_name
         self._app_id = None
         self._completion_status: Optional[pb.OrchestrationStatus] = None
         self._received_events: dict[str, list[Any]] = {}
@@ -862,6 +891,11 @@ class _RuntimeOrchestrationContext(
     @property
     def is_suspended(self) -> bool:
         return self._is_suspended
+
+    @property
+    def workflow_name(self) -> Optional[str]:
+        """Get the workflow name."""
+        return self._workflow_name
 
     def set_custom_status(self, custom_status: Any) -> None:
         self._encoded_custom_status = (
@@ -1043,7 +1077,19 @@ class _OrchestrationExecutor:
                 "The new history event list must have at least one event in it."
             )
 
-        ctx = _RuntimeOrchestrationContext(instance_id)
+        # Extract workflow name from execution started event if available
+        workflow_name: Optional[str] = None
+        for event in old_events:
+            if event.HasField("executionStarted"):
+                workflow_name = event.executionStarted.name
+                break
+        if workflow_name is None:
+            for event in new_events:
+                if event.HasField("executionStarted"):
+                    workflow_name = event.executionStarted.name
+                    break
+
+        ctx = _RuntimeOrchestrationContext(instance_id, workflow_name=workflow_name)
         try:
             # Rebuild local state by replaying old history into the orchestrator function
             self._logger.debug(

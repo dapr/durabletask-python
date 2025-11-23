@@ -728,7 +728,7 @@ class _Sandbox(ContextDecorator):
 
 
 @contextlib.contextmanager
-def sandbox_scope(async_ctx: Any, mode: Union[str, SandboxMode]) -> Any:
+def _sandbox_scope(async_ctx: Any, mode: Union[str, SandboxMode]) -> Any:
     """
     Create a sandbox context for deterministic workflow execution.
 
@@ -757,21 +757,21 @@ def sandbox_scope(async_ctx: Any, mode: Union[str, SandboxMode]) -> Any:
 
 
 @contextlib.contextmanager
-def sandbox_off(async_ctx: Any) -> Any:
+def _sandbox_off(async_ctx: Any) -> Any:
     """Convenience alias for sandbox scope in OFF mode (no detection/patching)."""
-    with sandbox_scope(async_ctx, SandboxMode.OFF):
+    with _sandbox_scope(async_ctx, SandboxMode.OFF):
         yield
 
 
 @contextlib.contextmanager
-def sandbox_best_effort(async_ctx: Any) -> Any:
+def _sandbox_best_effort(async_ctx: Any) -> Any:
     """Convenience alias for sandbox scope in BEST_EFFORT mode (warnings + patches)."""
-    with sandbox_scope(async_ctx, SandboxMode.BEST_EFFORT):
+    with _sandbox_scope(async_ctx, SandboxMode.BEST_EFFORT):
         yield
 
 
 @contextlib.contextmanager
-def sandbox_strict(async_ctx: Any) -> Any:
+def _sandbox_strict(async_ctx: Any) -> Any:
     """Convenience alias for sandbox scope in STRICT mode (errors + patches)."""
-    with sandbox_scope(async_ctx, SandboxMode.STRICT):
+    with _sandbox_scope(async_ctx, SandboxMode.STRICT):
         yield

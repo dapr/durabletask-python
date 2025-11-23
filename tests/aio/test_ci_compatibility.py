@@ -65,6 +65,8 @@ class TestCICompatibility:
         mock_base_ctx.instance_id = "ci-test"
         mock_base_ctx.current_utc_datetime = None
         mock_base_ctx.is_replaying = False
+        mock_base_ctx.is_suspended = False
+        mock_base_ctx.workflow_name = "test-workflow"
 
         async_ctx = AsyncWorkflowContext(mock_base_ctx)
 
@@ -89,6 +91,9 @@ class TestCICompatibility:
         mock_base_ctx = Mock(spec=dt_task.OrchestrationContext)
         mock_base_ctx.instance_id = "runtime-test"
         mock_base_ctx.current_utc_datetime = None
+        mock_base_ctx.is_replaying = False
+        mock_base_ctx.is_suspended = False
+        mock_base_ctx.workflow_name = "test-workflow"
 
         async_ctx = AsyncWorkflowContext(mock_base_ctx)
 
@@ -113,7 +118,7 @@ class TestCICompatibility:
         extra_methods = [
             item.split(": ")[1] for item in report["extra_members"] if "method:" in item
         ]
-        expected_enhancements = ["sleep", "activity", "when_all", "when_any", "gather"]
+        expected_enhancements = ["sleep", "when_all", "when_any", "gather"]
 
         for enhancement in expected_enhancements:
             assert enhancement in extra_methods, f"Expected enhancement '{enhancement}' not found"
@@ -137,8 +142,6 @@ class TestCICompatibility:
             "current_utc_datetime",
             "is_replaying",
             "workflow_name",
-            "parent_instance_id",
-            "history_event_sequence",
             "is_suspended",
         ],
     )

@@ -55,16 +55,6 @@ class OrchestrationContextProtocol(Protocol):
         ...
 
     @property
-    def parent_instance_id(self) -> Optional[str]:
-        """Get the parent orchestration ID if this is a sub-orchestration."""
-        ...
-
-    @property
-    def history_event_sequence(self) -> Optional[int]:
-        """Get the current processed history event sequence."""
-        ...
-
-    @property
     def is_suspended(self) -> bool:
         """Get whether this orchestration is currently suspended."""
         ...
@@ -132,8 +122,6 @@ def ensure_compatibility(context_class: type) -> type:
         "current_utc_datetime",
         "is_replaying",
         "workflow_name",
-        "parent_instance_id",
-        "history_event_sequence",
         "is_suspended",
     ]
 

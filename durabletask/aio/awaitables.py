@@ -378,7 +378,7 @@ class WhenAllAwaitable(AwaitableBase[List[TOutput]]):
 class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
     """Awaitable for when_any operations (wait for any task to complete)."""
 
-    __slots__ = ("_tasks_like",)
+    __slots__ = ("_originals", "_underlying")
 
     def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
         """
@@ -388,32 +388,32 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
             tasks_like: Iterable of awaitables or tasks to wait for
         """
         super().__init__()
-        self._tasks_like = list(tasks_like)
+        self._originals = list(tasks_like)
+        # Defer conversion to avoid issues with incomplete mocks and coroutine reuse
+        self._underlying: Optional[List[task.Task[Any]]] = None
+
+    def _ensure_underlying(self) -> List[task.Task[Any]]:
+        """Lazily convert originals to tasks, caching the result."""
+        if self._underlying is None:
+            self._underlying = []
+            for a in self._originals:
+                if isinstance(a, AwaitableBase):
+                    self._underlying.append(a._to_task())
+                elif isinstance(a, task.Task):
+                    self._underlying.append(a)
+                else:
+                    raise TypeError("when_any expects AwaitableBase or durabletask.task.Task")
+        return self._underlying
 
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_any task."""
-        underlying: List[task.Task[Any]] = []
-        for a in self._tasks_like:
-            if isinstance(a, AwaitableBase):
-                underlying.append(a._to_task())
-            elif isinstance(a, task.Task):
-                underlying.append(a)
-            else:
-                raise TypeError("when_any expects AwaitableBase or durabletask.task.Task")
-        return cast(task.Task[Any], task.when_any(underlying))
+        return cast(task.Task[Any], task.when_any(self._ensure_underlying()))
 
     def __await__(self) -> Generator[Any, Any, Any]:
         """Return a proxy that compares equal to the original item and exposes get_result()."""
-        when_any_task = self._to_task()
+        underlying = self._ensure_underlying()
+        when_any_task = task.when_any(underlying)
         completed = yield when_any_task
-
-        # Build underlying mapping original -> underlying task
-        underlying: List[task.Task[Any]] = []
-        for a in self._tasks_like:
-            if isinstance(a, AwaitableBase):
-                underlying.append(a._to_task())
-            elif isinstance(a, task.Task):
-                underlying.append(a)
 
         class _CompletedProxy:
             __slots__ = ("_original", "_completed")
@@ -431,20 +431,28 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
                     return self._completed.get_result()
                 return getattr(self._completed, "result", None)
 
+            @property
+            def __dict__(self) -> dict[str, Any]:
+                """Expose a dict-like view for compatibility with user code."""
+                return {
+                    "_original": self._original,
+                    "_completed": self._completed,
+                }
+
             def __repr__(self) -> str:  # pragma: no cover
                 return f"<WhenAnyCompleted proxy for {self._original!r}>"
 
         # If the runtime returned a non-task sentinel (e.g., tests), assume first item won
         if not isinstance(completed, task.Task):
-            return _CompletedProxy(self._tasks_like[0], completed)
+            return _CompletedProxy(self._originals[0], completed)
 
         # Map completed task back to the original item and return proxy
-        for original, under in zip(self._tasks_like, underlying, strict=False):
+        for original, under in zip(self._originals, underlying, strict=False):
             if completed == under:
                 return _CompletedProxy(original, completed)
 
         # Fallback proxy; treat the first as original
-        return _CompletedProxy(self._tasks_like[0], completed)
+        return _CompletedProxy(self._originals[0], completed)
 
 
 class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
@@ -454,7 +462,7 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
     This is useful when you need to know which task completed first, not just its result.
     """
 
-    __slots__ = ("_tasks_like", "_awaitables")
+    __slots__ = ("_originals", "_underlying")
 
     def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
         """
@@ -464,41 +472,37 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
             tasks_like: Iterable of awaitables or tasks to wait for
         """
         super().__init__()
-        self._tasks_like = list(tasks_like)
-        self._awaitables = self._tasks_like  # Alias for compatibility
+        self._originals = list(tasks_like)
+        # Defer conversion to avoid issues with incomplete mocks and coroutine reuse
+        self._underlying: Optional[List[task.Task[Any]]] = None
+
+    def _ensure_underlying(self) -> List[task.Task[Any]]:
+        """Lazily convert originals to tasks, caching the result."""
+        if self._underlying is None:
+            self._underlying = []
+            for a in self._originals:
+                if isinstance(a, AwaitableBase):
+                    self._underlying.append(a._to_task())
+                elif isinstance(a, task.Task):
+                    self._underlying.append(a)
+                else:
+                    raise TypeError(
+                        "when_any_with_result expects AwaitableBase or durabletask.task.Task"
+                    )
+        return self._underlying
 
     def _to_task(self) -> task.Task[Any]:
         """Convert to a when_any task with result tracking."""
-        underlying: List[task.Task[Any]] = []
-        for a in self._tasks_like:
-            if isinstance(a, AwaitableBase):
-                underlying.append(a._to_task())
-            elif isinstance(a, task.Task):
-                underlying.append(a)
-            else:
-                raise TypeError(
-                    "when_any_with_result expects AwaitableBase or durabletask.task.Task"
-                )
-
-        # Use when_any and then determine which task completed
-        when_any_task = task.when_any(underlying)
-        return cast(task.Task[Any], when_any_task)
+        return cast(task.Task[Any], task.when_any(self._ensure_underlying()))
 
     def __await__(self) -> Generator[Any, Any, tuple[int, Any]]:
         """Override to provide index + result tuple."""
-        t = self._to_task()
-        completed_task = yield t
-
-        # Find which task completed by comparing results
-        underlying_tasks: List[task.Task[Any]] = []
-        for a in self._tasks_like:
-            if isinstance(a, AwaitableBase):
-                underlying_tasks.append(a._to_task())
-            elif isinstance(a, task.Task):
-                underlying_tasks.append(a)
+        underlying = self._ensure_underlying()
+        when_any_task = task.when_any(underlying)
+        completed_task = yield when_any_task
 
         # The completed_task should match one of our underlying tasks
-        for i, underlying_task in enumerate(underlying_tasks):
+        for i, underlying_task in enumerate(underlying):
             if underlying_task == completed_task:
                 return (i, completed_task.result if hasattr(completed_task, "result") else None)
 

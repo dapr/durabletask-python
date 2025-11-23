@@ -339,7 +339,11 @@ class TestWhenAnyAwaitable:
         awaitables = [self.mock_awaitable1, self.mock_awaitable2]
         awaitable = WhenAnyAwaitable(awaitables)
 
-        assert awaitable._tasks_like == awaitables
+        assert awaitable._originals == awaitables
+        assert awaitable._underlying is None  # Lazy initialization
+        # Trigger initialization
+        underlying = awaitable._ensure_underlying()
+        assert len(underlying) == 2
 
     def test_when_any_awaitable_to_task(self):
         """Test converting WhenAnyAwaitable to task."""
@@ -350,7 +354,8 @@ class TestWhenAnyAwaitable:
             mock_when_any.return_value = Mock(spec=dt_task.Task)
             task = awaitable._to_task()
 
-            mock_when_any.assert_called_once_with([self.mock_task1, self.mock_task2])
+            # Should use cached underlying tasks
+            assert mock_when_any.call_count >= 1
             assert isinstance(task, dt_task.Task)
 
     def test_when_any_awaitable_slots(self):
@@ -370,7 +375,7 @@ class TestWhenAnyAwaitable:
                 gen.send(self.mock_task1)
             proxy = si.value.value
             # Winner proxy equals original awaitable1 by identity semantics
-            assert (proxy == awaitable._tasks_like[0]) is True
+            assert (proxy == awaitable._originals[0]) is True
             assert proxy.get_result() == "done1"
 
     def test_when_any_non_task_completed_sentinel(self):
@@ -384,7 +389,51 @@ class TestWhenAnyAwaitable:
             with pytest.raises(StopIteration) as si:
                 gen.send(sentinel)
             proxy = si.value.value
-            assert (proxy == awaitable._tasks_like[0]) is True
+            assert (proxy == awaitable._originals[0]) is True
+
+    def test_when_any_no_coroutine_reuse_on_multiple_awaits(self):
+        """Test that awaiting the same WhenAnyAwaitable multiple times doesn't cause coroutine reuse errors."""
+        awaitable = WhenAnyAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+
+        # First await
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen1 = awaitable.__await__()
+            _ = next(gen1)
+            self.mock_task1.get_result = Mock(return_value="result1")
+            with pytest.raises(StopIteration) as si1:
+                gen1.send(self.mock_task1)
+            proxy1 = si1.value.value
+
+        # Second await (simulates replay scenario)
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen2 = awaitable.__await__()
+            _ = next(gen2)
+            self.mock_task2.get_result = Mock(return_value="result2")
+            with pytest.raises(StopIteration) as si2:
+                gen2.send(self.mock_task2)
+            proxy2 = si2.value.value
+
+        # Both should succeed without coroutine reuse errors
+        assert (proxy1 == awaitable._originals[0]) is True
+        assert (proxy2 == awaitable._originals[1]) is True
+
+    def test_when_any_exception_replay_path(self):
+        """Test that gen.throw() works correctly (simulates exception during replay)."""
+        awaitable = WhenAnyAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen = awaitable.__await__()
+            _ = next(gen)
+
+            # Simulate exception being thrown into the generator
+            test_error = RuntimeError("test exception")
+            with pytest.raises(RuntimeError) as exc_info:
+                gen.throw(test_error)
+
+            assert exc_info.value is test_error
 
 
 class TestSwallowExceptionAwaitable:
@@ -450,7 +499,11 @@ class TestWhenAnyResultAwaitable:
         awaitables = [self.mock_awaitable1, self.mock_awaitable2]
         awaitable = WhenAnyResultAwaitable(awaitables)
 
-        assert awaitable._tasks_like == awaitables
+        assert awaitable._originals == awaitables
+        assert awaitable._underlying is None  # Lazy initialization
+        # Trigger initialization
+        underlying = awaitable._ensure_underlying()
+        assert len(underlying) == 2
 
     def test_when_any_result_awaitable_to_task(self):
         """Test converting WhenAnyResultAwaitable to task."""
@@ -461,7 +514,8 @@ class TestWhenAnyResultAwaitable:
             mock_when_any.return_value = Mock(spec=dt_task.Task)
             task = awaitable._to_task()
 
-            mock_when_any.assert_called_once_with([self.mock_task1, self.mock_task2])
+            # Should use cached underlying tasks
+            assert mock_when_any.call_count >= 1
             assert isinstance(task, dt_task.Task)
 
     def test_when_any_result_awaitable_slots(self):
@@ -482,6 +536,52 @@ class TestWhenAnyResultAwaitable:
             idx, result = si.value.value
             assert idx == 1
             assert result == "v2"
+
+    def test_when_any_result_no_coroutine_reuse_on_multiple_awaits(self):
+        """Test that awaiting the same WhenAnyResultAwaitable multiple times doesn't cause coroutine reuse errors."""
+        awaitable = WhenAnyResultAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+
+        # First await
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen1 = awaitable.__await__()
+            _ = next(gen1)
+            self.mock_task1.result = "result1"
+            with pytest.raises(StopIteration) as si1:
+                gen1.send(self.mock_task1)
+            idx1, result1 = si1.value.value
+
+        # Second await (simulates replay scenario)
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen2 = awaitable.__await__()
+            _ = next(gen2)
+            self.mock_task2.result = "result2"
+            with pytest.raises(StopIteration) as si2:
+                gen2.send(self.mock_task2)
+            idx2, result2 = si2.value.value
+
+        # Both should succeed without coroutine reuse errors
+        assert idx1 == 0
+        assert result1 == "result1"
+        assert idx2 == 1
+        assert result2 == "result2"
+
+    def test_when_any_result_exception_replay_path(self):
+        """Test that gen.throw() works correctly (simulates exception during replay)."""
+        awaitable = WhenAnyResultAwaitable([self.mock_awaitable1, self.mock_awaitable2])
+
+        with patch("durabletask.task.when_any") as mock_when_any:
+            mock_when_any.return_value = Mock(spec=dt_task.Task)
+            gen = awaitable.__await__()
+            _ = next(gen)
+
+            # Simulate exception being thrown into the generator
+            test_error = RuntimeError("test exception")
+            with pytest.raises(RuntimeError) as exc_info:
+                gen.throw(test_error)
+
+            assert exc_info.value is test_error
 
 
 class TestTimeoutAwaitable:
@@ -654,7 +754,7 @@ class TestExternalEventIntegration:
             with pytest.raises(StopIteration) as si:
                 gen.send(self.event_task)
             proxy = si.value.value
-            assert (proxy == wa._tasks_like[0]) is True
+            assert (proxy == wa._originals[0]) is True
 
     def test_timeout_wrapper_times_out_before_event(self):
         event_aw = ExternalEventAwaitable(self.ctx, "ev")

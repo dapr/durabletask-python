@@ -27,7 +27,7 @@ from .client import AsyncTaskHubGrpcClient
 from .compatibility import OrchestrationContextProtocol, ensure_compatibility
 
 # Core context and driver
-from .context import AsyncWorkflowContext, WorkflowInfo
+from .context import AsyncWorkflowContext
 from .driver import CoroutineOrchestratorRunner, WorkflowFunction
 
 # Sandbox and error handling
@@ -38,20 +38,12 @@ from .errors import (
     WorkflowTimeoutError,
     WorkflowValidationError,
 )
-from .sandbox import (
-    SandboxMode,
-    _NonDeterminismDetector,
-    sandbox_best_effort,
-    sandbox_off,
-    sandbox_scope,
-    sandbox_strict,
-)
+from .sandbox import SandboxMode, _NonDeterminismDetector
 
 __all__ = [
     "AsyncTaskHubGrpcClient",
     # Core classes
     "AsyncWorkflowContext",
-    "WorkflowInfo",
     "CoroutineOrchestratorRunner",
     "WorkflowFunction",
     # Deterministic utilities
@@ -73,11 +65,7 @@ __all__ = [
     "SwallowExceptionAwaitable",
     "gather",
     # Sandbox and utilities
-    "sandbox_scope",
     "SandboxMode",
-    "sandbox_off",
-    "sandbox_best_effort",
-    "sandbox_strict",
     "_NonDeterminismDetector",
     # Compatibility protocol
     "OrchestrationContextProtocol",

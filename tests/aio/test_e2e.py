@@ -21,6 +21,7 @@ To run these tests:
 3. Run: pytest tests/aio/test_e2e.py -m e2e
 """
 
+import asyncio
 import json
 import os
 import time
@@ -154,6 +155,21 @@ class TestAsyncWorkflowE2E:
             return results
 
         cls.parallel_async_workflow = parallel_async_workflow
+
+        @cls.worker.add_async_orchestrator(sandbox_mode="best_effort")
+        async def sandbox_when_all_workflow(
+            ctx: AsyncWorkflowContext, parallel_count: int
+        ) -> list[str]:
+            tasks = [
+                ctx.call_activity(test_activity, input=f"sandbox_{i}")
+                for i in range(parallel_count)
+            ]
+
+            results = await asyncio.gather(*tasks)
+
+            return list(results)
+
+        cls.sandbox_when_all_workflow = sandbox_when_all_workflow
 
         # when_any with activities (register early)
         @cls.worker.add_async_orchestrator
@@ -449,6 +465,28 @@ class TestAsyncWorkflowE2E:
         assert len(result_data) == 3
         for i, res in enumerate(result_data):
             assert f"parallel_{i}" in res
+
+    @pytest.mark.asyncio
+    async def test_sandbox_when_all_workflow_e2e(self):
+        """Test sandboxed gather bridging to when_all end-to-end."""
+        instance_id = f"test_sandbox_when_all_{int(time.time())}"
+        parallel_count = 3
+
+        self.client.schedule_new_orchestration(
+            type(self).sandbox_when_all_workflow,
+            input=parallel_count,
+            instance_id=instance_id,
+        )
+
+        result = self.client.wait_for_orchestration_completion(instance_id, timeout=30)
+
+        assert result is not None
+        result_data = _deserialize_result(result)
+
+        assert isinstance(result_data, list)
+        assert len(result_data) == parallel_count
+        for i, res in enumerate(result_data):
+            assert f"sandbox_{i}" in res
 
     @pytest.mark.asyncio
     async def test_timer_async_workflow_e2e(self):

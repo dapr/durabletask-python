@@ -24,6 +24,7 @@ from durabletask import task as dt_task
 from durabletask.aio import (
     ActivityAwaitable,
     AsyncWorkflowContext,
+    AwaitableBase,
     ExternalEventAwaitable,
     SleepAwaitable,
     SubOrchestratorAwaitable,
@@ -233,25 +234,29 @@ class TestAsyncWorkflowContext:
 
     def test_when_any_method(self):
         """Test when_any() method."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
         awaitables = [awaitable1, awaitable2]
 
         result = self.ctx.when_any(awaitables)
 
         assert isinstance(result, WhenAnyAwaitable)
-        assert result._tasks_like == awaitables
+        assert result._originals == awaitables
 
     def test_when_any_with_result_method(self):
         """Test when_any_with_result() method."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
         awaitables = [awaitable1, awaitable2]
 
         result = self.ctx.when_any_with_result(awaitables)
 
         assert isinstance(result, WhenAnyResultAwaitable)
-        assert result._tasks_like == awaitables
+        assert result._originals == awaitables
 
     def test_with_timeout_method(self):
         """Test with_timeout() method."""
@@ -346,18 +351,6 @@ class TestAsyncWorkflowContext:
         result = self.ctx.get_headers()
         assert result == {"header": "value"}
         self.mock_base_ctx.get_metadata.assert_called_once()
-
-    def test_execution_info_property(self):
-        """Test execution_info property."""
-        mock_info = Mock()
-        self.mock_base_ctx.execution_info = mock_info
-
-        assert self.ctx.execution_info is mock_info
-
-    def test_execution_info_not_available(self):
-        """Test execution_info when not available."""
-        # Should return None if not available
-        assert self.ctx.execution_info is None
 
     def test_debug_mode_enabled(self):
         """Test debug mode functionality."""

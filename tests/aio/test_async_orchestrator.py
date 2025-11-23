@@ -25,9 +25,9 @@ TEST_INSTANCE_ID = "async-test-1"
 
 def test_async_activity_and_sleep():
     async def orch(ctx, _):
-        a = await ctx.activity("echo", input=1)
+        a = await ctx.call_activity("echo", input=1)
         await ctx.sleep(1)
-        b = await ctx.activity("echo", input=a + 1)
+        b = await ctx.call_activity("echo", input=a + 1)
         return b
 
     def echo(_, x):
@@ -85,8 +85,8 @@ def test_async_activity_and_sleep():
 
 def test_async_when_all_any_and_events():
     async def orch(ctx, _):
-        t1 = ctx.activity("a", input=1)
-        t2 = ctx.activity("b", input=2)
+        t1 = ctx.call_activity("a", input=1)
+        t2 = ctx.call_activity("b", input=2)
         await ctx.when_all([t1, t2])
         _ = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(0.1)])
         return "ok"
@@ -219,8 +219,8 @@ def test_async_sandbox_deterministic_random_uuid_time():
 
 def test_async_two_activities_no_timer():
     async def orch(ctx, _):
-        a = await ctx.activity("echo", input=1)
-        b = await ctx.activity("echo", input=a + 1)
+        a = await ctx.call_activity("echo", input=1)
+        b = await ctx.call_activity("echo", input=a + 1)
         return b
 
     def echo(_, x):
@@ -261,10 +261,7 @@ def test_async_two_activities_no_timer():
 def test_async_ctx_metadata_passthrough():
     async def orch(ctx, _):
         # Access deterministic metadata via AsyncWorkflowContext
-        # Note: workflow_name is not available from base OrchestrationContext
         return {
-            "parent": ctx.parent_instance_id,
-            "seq": ctx.history_event_sequence,
             "id": ctx.instance_id,
             "replay": ctx.is_replaying,
             "susp": ctx.is_suspended,
@@ -282,17 +279,15 @@ def test_async_ctx_metadata_passthrough():
     assert len(res.actions) == 1 and res.actions[0].HasField("completeOrchestration")
     out_json = res.actions[0].completeOrchestration.result.value
     out = json.loads(out_json)
-    assert out["parent"] is None
-    assert isinstance(out["seq"], int)  # history_event_sequence should be an integer
     assert out["id"] == TEST_INSTANCE_ID
     assert out["replay"] is False
 
 
 def test_async_gather_happy_path_and_return_exceptions():
     async def orch(ctx, _):
-        a = ctx.activity("ok", input=1)
-        b = ctx.activity("boom", input=2)
-        c = ctx.activity("ok", input=3)
+        a = ctx.call_activity("ok", input=1)
+        b = ctx.call_activity("boom", input=2)
+        c = ctx.call_activity("ok", input=3)
         vals = await ctx.gather(a, b, c, return_exceptions=True)
         return vals
 
@@ -361,8 +356,8 @@ def test_async_when_any_ignores_losers_deterministically():
     import durabletask.internal.helpers as helpers
 
     async def orch(ctx, _):
-        a = ctx.activity("a", input=1)
-        b = ctx.activity("b", input=2)
+        a = ctx.call_activity("a", input=1)
+        b = ctx.call_activity("b", input=2)
         await ctx.when_any([a, b])
         return "done"
 

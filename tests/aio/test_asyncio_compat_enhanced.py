@@ -27,8 +27,8 @@ from durabletask.aio import (
     CoroutineOrchestratorRunner,
     SandboxViolationError,
     WorkflowFunction,
-    sandbox_scope,
 )
+from durabletask.aio.sandbox import _sandbox_scope
 
 
 class TestAsyncWorkflowError:
@@ -60,6 +60,8 @@ class TestAsyncWorkflowContext:
         self.mock_base_ctx = Mock(spec=dt_task.OrchestrationContext)
         self.mock_base_ctx.instance_id = "test-instance-123"
         self.mock_base_ctx.current_utc_datetime = datetime(2023, 1, 1, 12, 0, 0)
+        self.mock_base_ctx.is_replaying = False
+        self.mock_base_ctx.is_suspended = False
         self.ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
     def test_debug_mode_detection(self):
@@ -124,7 +126,7 @@ class TestAsyncWorkflowContext:
         with patch.dict(os.environ, {"DAPR_WF_DEBUG": "true"}):
             ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-            ctx.activity("test_activity", input="test")
+            ctx.call_activity("test_activity", input="test")
 
             assert len(ctx._operation_history) == 1
             op = ctx._operation_history[0]
@@ -144,11 +146,17 @@ class TestAsyncWorkflowContext:
             assert op["details"]["duration"] == 5.0
 
     def test_when_any_with_result(self):
-        awaitables = [Mock(), Mock()]
+        from durabletask.aio import AwaitableBase
+
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitables = [awaitable1, awaitable2]
         result_awaitable = self.ctx.when_any_with_result(awaitables)
 
         assert result_awaitable is not None
-        assert hasattr(result_awaitable, "_awaitables")
+        assert hasattr(result_awaitable, "_originals")
 
     def test_with_timeout(self):
         mock_awaitable = Mock()
@@ -213,6 +221,8 @@ class TestEnhancedSandboxing:
         self.mock_base_ctx = Mock(spec=dt_task.OrchestrationContext)
         self.mock_base_ctx.instance_id = "test-instance"
         self.mock_base_ctx.current_utc_datetime = datetime(2023, 1, 1, 12, 0, 0)
+        self.mock_base_ctx.is_replaying = False
+        self.mock_base_ctx.is_suspended = False
         self.async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
     def test_datetime_patching_limitation(self):
@@ -220,7 +230,7 @@ class TestEnhancedSandboxing:
         # This test documents the current limitation
         import datetime as dt
 
-        with sandbox_scope(self.async_ctx, "best_effort"):
+        with _sandbox_scope(self.async_ctx, "best_effort"):
             # datetime.now cannot be patched due to immutability
             # Users should use ctx.now() instead
             now_result = dt.datetime.now()
@@ -242,7 +252,7 @@ class TestEnhancedSandboxing:
 
         original_getrandbits = random.getrandbits
 
-        with sandbox_scope(self.async_ctx, "best_effort"):
+        with _sandbox_scope(self.async_ctx, "best_effort"):
             # Should use deterministic random
             result1 = random.getrandbits(32)
             result2 = random.getrandbits(32)
@@ -254,7 +264,7 @@ class TestEnhancedSandboxing:
 
     def test_strict_mode_file_blocking(self):
         with pytest.raises(SandboxViolationError, match="File I/O operations are not allowed"):
-            with sandbox_scope(self.async_ctx, "strict"):
+            with _sandbox_scope(self.async_ctx, "strict"):
                 open("test.txt", "w")
 
     def test_strict_mode_urandom_blocking(self):
@@ -262,7 +272,7 @@ class TestEnhancedSandboxing:
 
         if hasattr(os, "urandom"):
             with pytest.raises(SandboxViolationError, match="os.urandom is not allowed"):
-                with sandbox_scope(self.async_ctx, "strict"):
+                with _sandbox_scope(self.async_ctx, "strict"):
                     os.urandom(16)
 
     def test_strict_mode_secrets_blocking(self):
@@ -270,7 +280,7 @@ class TestEnhancedSandboxing:
             import secrets
 
             with pytest.raises(SandboxViolationError, match="secrets module is not allowed"):
-                with sandbox_scope(self.async_ctx, "strict"):
+                with _sandbox_scope(self.async_ctx, "strict"):
                     secrets.token_bytes(16)
         except ImportError:
             # secrets module not available, skip test
@@ -281,7 +291,7 @@ class TestEnhancedSandboxing:
 
         original_sleep = asyncio.sleep
 
-        with sandbox_scope(self.async_ctx, "best_effort"):
+        with _sandbox_scope(self.async_ctx, "best_effort"):
             # asyncio.sleep should be patched
             sleep_awaitable = asyncio.sleep(1.0)
             assert hasattr(sleep_awaitable, "__await__")
@@ -296,15 +306,21 @@ class TestConcurrencyPrimitives:
     def setup_method(self):
         self.mock_base_ctx = Mock(spec=dt_task.OrchestrationContext)
         self.mock_base_ctx.instance_id = "test-instance"
+        self.mock_base_ctx.is_replaying = False
+        self.mock_base_ctx.is_suspended = False
         self.ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
     def test_when_any_result_awaitable(self):
-        from durabletask.aio import WhenAnyResultAwaitable
+        from durabletask.aio import AwaitableBase, WhenAnyResultAwaitable
 
-        mock_awaitables = [Mock(), Mock()]
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
+        mock_awaitables = [awaitable1, awaitable2]
         awaitable = WhenAnyResultAwaitable(mock_awaitables)
 
-        assert awaitable._awaitables == mock_awaitables
+        assert awaitable._originals == mock_awaitables
         assert hasattr(awaitable, "_to_task")
 
     def test_timeout_awaitable(self):

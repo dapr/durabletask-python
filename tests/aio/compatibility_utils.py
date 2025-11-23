@@ -56,8 +56,6 @@ class CompatibilityChecker:
             "current_utc_datetime",
             "is_replaying",
             "workflow_name",
-            "parent_instance_id",
-            "history_event_sequence",
             "is_suspended",
         ]
 
@@ -100,8 +98,6 @@ class CompatibilityChecker:
             "current_utc_datetime",
             "is_replaying",
             "workflow_name",
-            "parent_instance_id",
-            "history_event_sequence",
             "is_suspended",
         ]
 

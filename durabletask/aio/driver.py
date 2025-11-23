@@ -25,6 +25,7 @@ from typing import Any, Callable, Optional, Protocol, TypeVar, cast, runtime_che
 
 from durabletask import task
 from durabletask.aio.errors import AsyncWorkflowError, WorkflowValidationError
+from durabletask.aio.sandbox import SandboxMode
 
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
@@ -135,7 +136,7 @@ class CoroutineOrchestratorRunner:
             AsyncWorkflowError: If there are issues during workflow execution
         """
         # Import sandbox here to avoid circular imports
-        from .sandbox import sandbox_scope
+        from .sandbox import _sandbox_scope
 
         def driver_gen() -> Generator[task.Task[Any], Any, Any]:
             """Inner generator that drives the coroutine execution."""
@@ -160,10 +161,10 @@ class CoroutineOrchestratorRunner:
 
             # Prime the coroutine to first await point or finish synchronously
             try:
-                if self._sandbox_mode == "off":
+                if self._sandbox_mode == SandboxMode.OFF:
                     awaited_obj = cast(Any, coro).send(None)
                 else:
-                    with sandbox_scope(async_ctx, self._sandbox_mode):
+                    with _sandbox_scope(async_ctx, self._sandbox_mode):
                         awaited_obj = cast(Any, coro).send(None)
             except StopIteration as stop:
                 return stop.value
@@ -205,7 +206,7 @@ class CoroutineOrchestratorRunner:
                         if self._sandbox_mode == "off":
                             awaited_obj = cast(Any, coro).send(stop_await.value)
                         else:
-                            with sandbox_scope(async_ctx, self._sandbox_mode):
+                            with _sandbox_scope(async_ctx, self._sandbox_mode):
                                 awaited_obj = cast(Any, coro).send(stop_await.value)
                     except StopIteration as stop:
                         return stop.value
@@ -243,10 +244,10 @@ class CoroutineOrchestratorRunner:
                         awaited_iter.throw(e)
                     except StopIteration as stop_await:
                         try:
-                            if self._sandbox_mode == "off":
+                            if self._sandbox_mode == SandboxMode.OFF:
                                 awaited_obj = cast(Any, coro).send(stop_await.value)
                             else:
-                                with sandbox_scope(async_ctx, self._sandbox_mode):
+                                with _sandbox_scope(async_ctx, self._sandbox_mode):
                                     awaited_obj = cast(Any, coro).send(stop_await.value)
                         except StopIteration as stop:
                             return stop.value
@@ -268,10 +269,10 @@ class CoroutineOrchestratorRunner:
                         awaited_iter = to_iter(awaited_obj)
                     except Exception as exc:
                         try:
-                            if self._sandbox_mode == "off":
+                            if self._sandbox_mode == SandboxMode.OFF:
                                 awaited_obj = cast(Any, coro).throw(exc)
                             else:
-                                with sandbox_scope(async_ctx, self._sandbox_mode):
+                                with _sandbox_scope(async_ctx, self._sandbox_mode):
                                     awaited_obj = cast(Any, coro).throw(exc)
                         except StopIteration as stop:
                             return stop.value
@@ -307,10 +308,10 @@ class CoroutineOrchestratorRunner:
                         next_req = awaited_iter.send(result)
                 except StopIteration as stop_await:
                     try:
-                        if self._sandbox_mode == "off":
+                        if self._sandbox_mode == SandboxMode.OFF:
                             awaited_obj = cast(Any, coro).send(stop_await.value)
                         else:
-                            with sandbox_scope(async_ctx, self._sandbox_mode):
+                            with _sandbox_scope(async_ctx, self._sandbox_mode):
                                 awaited_obj = cast(Any, coro).send(stop_await.value)
                     except StopIteration as stop:
                         return stop.value

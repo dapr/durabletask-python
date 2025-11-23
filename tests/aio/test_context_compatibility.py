@@ -38,8 +38,6 @@ class TestAsyncWorkflowContextCompatibility:
         self.mock_base_ctx.current_utc_datetime = datetime(2023, 1, 1, 12, 0, 0)
         self.mock_base_ctx.is_replaying = False
         self.mock_base_ctx.workflow_name = "test_workflow"
-        self.mock_base_ctx.parent_instance_id = None
-        self.mock_base_ctx.history_event_sequence = 5
         self.mock_base_ctx.is_suspended = False
 
         self.async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
@@ -60,9 +58,7 @@ class TestAsyncWorkflowContextCompatibility:
 
             # Verify the property is actually callable (not just an attribute)
             prop_value = getattr(self.async_ctx, prop_name)
-            assert prop_value is not None or prop_name in [
-                "parent_instance_id",
-            ], f"Property {prop_name} returned None unexpectedly"
+            assert prop_value is not None, f"Property {prop_name} returned None unexpectedly"
 
     def test_all_orchestration_context_methods_exist(self):
         """Test that AsyncWorkflowContext has all methods from OrchestrationContext."""
@@ -103,18 +99,6 @@ class TestAsyncWorkflowContextCompatibility:
         """Test workflow_name property compatibility."""
         assert self.async_ctx.workflow_name == "test_workflow"
         assert isinstance(self.async_ctx.workflow_name, (str, type(None)))
-
-    def test_property_compatibility_parent_instance_id(self):
-        """Test parent_instance_id property compatibility."""
-        assert self.async_ctx.parent_instance_id is None
-        # Test with a value
-        self.mock_base_ctx.parent_instance_id = "parent-123"
-        assert self.async_ctx.parent_instance_id == "parent-123"
-
-    def test_property_compatibility_history_event_sequence(self):
-        """Test history_event_sequence property compatibility."""
-        assert self.async_ctx.history_event_sequence == 5
-        assert isinstance(self.async_ctx.history_event_sequence, int)
 
     def test_property_compatibility_is_suspended(self):
         """Test is_suspended property compatibility."""
@@ -250,7 +234,6 @@ class TestAsyncWorkflowContextCompatibility:
         # These are enhancements that don't exist in base OrchestrationContext
         additional_methods = [
             "sleep",  # Alias for create_timer
-            "activity",  # Alias for call_activity
             "sub_orchestrator",  # Alias for call_sub_orchestrator
             "when_all",  # Concurrency primitive
             "when_any",  # Concurrency primitive

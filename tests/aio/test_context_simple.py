@@ -27,6 +27,7 @@ from durabletask import task as dt_task
 from durabletask.aio import (
     ActivityAwaitable,
     AsyncWorkflowContext,
+    AwaitableBase,
     ExternalEventAwaitable,
     SleepAwaitable,
     SubOrchestratorAwaitable,
@@ -150,7 +151,7 @@ class TestAsyncWorkflowContextBasic:
         """Test activity() method alias."""
         activity_fn = Mock(__name__="test_activity")
 
-        awaitable = self.ctx.activity(activity_fn, input="test_input")
+        awaitable = self.ctx.call_activity(activity_fn, input="test_input")
 
         assert isinstance(awaitable, ActivityAwaitable)
         assert awaitable._activity_fn is activity_fn
@@ -228,25 +229,29 @@ class TestAsyncWorkflowContextBasic:
 
     def test_when_any_method(self):
         """Test when_any() method."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
         awaitables = [awaitable1, awaitable2]
 
         result = self.ctx.when_any(awaitables)
 
         assert isinstance(result, WhenAnyAwaitable)
-        assert result._tasks_like == awaitables
+        assert result._originals == awaitables
 
     def test_when_any_with_result_method(self):
         """Test when_any_with_result() method."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
+        awaitable1 = Mock(spec=AwaitableBase)
+        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
+        awaitable2 = Mock(spec=AwaitableBase)
+        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
         awaitables = [awaitable1, awaitable2]
 
         result = self.ctx.when_any_with_result(awaitables)
 
         assert isinstance(result, WhenAnyResultAwaitable)
-        assert result._tasks_like == awaitables
+        assert result._originals == awaitables
 
     def test_with_timeout_method(self):
         """Test with_timeout() method."""

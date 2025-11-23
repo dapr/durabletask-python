@@ -40,7 +40,7 @@ def test_activity_app_id_passed_to_base_ctx_when_supported():
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.activity(
+    awaitable = async_ctx.call_activity(
         "do_work", input={"x": 1}, retry_policy=None, app_id="target-app", metadata={"k": "v"}
     )
     task_obj = awaitable._to_task()
@@ -95,7 +95,7 @@ def test_activity_app_id_not_passed_when_not_supported():
 
     async_ctx = AsyncWorkflowContext(base_ctx)
 
-    awaitable = async_ctx.activity(
+    awaitable = async_ctx.call_activity(
         "do_work", input={"x": 1}, retry_policy=None, app_id="target-app", metadata={"k": "v"}
     )
     task_obj = awaitable._to_task()

@@ -25,8 +25,8 @@ from durabletask.aio import (
     NonDeterminismWarning,
     SandboxViolationError,
     _NonDeterminismDetector,
-    sandbox_scope,
 )
+from durabletask.aio.sandbox import _sandbox_scope
 
 
 class TestNonDeterminismDetection:
@@ -66,7 +66,7 @@ class TestNonDeterminismDetection:
 
     def test_sandbox_with_non_determinism_detection_off(self):
         """Test that detection is disabled when mode is 'off'."""
-        with sandbox_scope(self.async_ctx, "off"):
+        with _sandbox_scope(self.async_ctx, "off"):
             # Should not detect anything
             import datetime as dt
 
@@ -79,7 +79,7 @@ class TestNonDeterminismDetection:
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
 
-            with sandbox_scope(self.async_ctx, "best_effort"):
+            with _sandbox_scope(self.async_ctx, "best_effort"):
                 # This should work without issues since we're just testing the context
                 pass
 
@@ -89,7 +89,7 @@ class TestNonDeterminismDetection:
     def test_sandbox_with_non_determinism_detection_strict_mode(self):
         """Test that strict mode blocks dangerous operations."""
         with pytest.raises(SandboxViolationError, match="File I/O operations are not allowed"):
-            with sandbox_scope(self.async_ctx, "strict"):
+            with _sandbox_scope(self.async_ctx, "strict"):
                 open("test.txt", "w")
 
     def test_non_determinism_warning_class(self):
@@ -164,7 +164,7 @@ class TestNonDeterminismIntegration:
         """Test that the sandbox patches actually work."""
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             import random
             import time
             import uuid
@@ -183,7 +183,7 @@ class TestNonDeterminismIntegration:
         """Test that datetime.now() limitation is properly documented."""
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             import datetime as dt
 
             # datetime.now() cannot be patched due to immutability
@@ -203,23 +203,23 @@ class TestNonDeterminismIntegration:
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
         # Strict: ctx.random().randint allowed
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             rng = async_ctx.random()
             assert isinstance(rng.randint(1, 3), int)
 
         # Strict: global random.randint patched and deterministic
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             v1 = random.randint(1, 1000000)
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             v2 = random.randint(1, 1000000)
         assert v1 == v2
 
         # Best-effort: global random warns but returns
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            with sandbox_scope(async_ctx, "best_effort"):
+            with _sandbox_scope(async_ctx, "best_effort"):
                 val1 = random.random()
-            with sandbox_scope(async_ctx, "best_effort"):
+            with _sandbox_scope(async_ctx, "best_effort"):
                 val2 = random.random()
             assert isinstance(val1, float)
             assert val1 == val2
@@ -234,21 +234,21 @@ class TestNonDeterminismIntegration:
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
         # Allowed via deterministic helper
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             val = async_ctx.uuid4()
             assert isinstance(val, _uuid.UUID)
 
         # Patched global uuid.uuid4 is deterministic
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             u1 = _uuid.uuid4()
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             u2 = _uuid.uuid4()
         assert isinstance(u1, _uuid.UUID)
         assert u1 == u2
 
         if hasattr(os, "urandom"):
             with pytest.raises(SandboxViolationError):
-                with sandbox_scope(async_ctx, "strict"):
+                with _sandbox_scope(async_ctx, "strict"):
                     _ = os.urandom(8)
 
     @pytest.mark.asyncio
@@ -265,7 +265,7 @@ class TestNonDeterminismIntegration:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             with pytest.raises(SandboxViolationError):
-                with sandbox_scope(async_ctx, "strict"):
+                with _sandbox_scope(async_ctx, "strict"):
                     asyncio.create_task(dummy())
             # Ensure no "coroutine was never awaited" RuntimeWarning leaked
             assert not any("was never awaited" in str(rec.message) for rec in w)
@@ -274,7 +274,7 @@ class TestNonDeterminismIntegration:
         fut = asyncio.get_event_loop().create_future()
         fut.set_result(1)
         with pytest.raises(SandboxViolationError):
-            with sandbox_scope(async_ctx, "strict"):
+            with _sandbox_scope(async_ctx, "strict"):
                 asyncio.create_task(fut)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
@@ -289,7 +289,7 @@ class TestNonDeterminismIntegration:
             await asyncio.sleep(0)
             return "ok"
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             t = asyncio.create_task(quick())
             assert await t == "ok"
 
@@ -297,7 +297,7 @@ class TestNonDeterminismIntegration:
         """Ensure helper methods use whitelisted deterministic RNG in strict mode."""
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-        with sandbox_scope(async_ctx, "strict"):
+        with _sandbox_scope(async_ctx, "strict"):
             s = async_ctx.random_string(5)
             assert len(s) == 5
             n = async_ctx.random_int(1, 3)
@@ -312,7 +312,7 @@ class TestNonDeterminismIntegration:
 
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-        with sandbox_scope(async_ctx, "best_effort"):
+        with _sandbox_scope(async_ctx, "best_effort"):
             # Empty gather returns [], cache replay on re-await
             g0 = asyncio.gather()
             r0a = await g0
@@ -343,7 +343,7 @@ class TestNonDeterminismIntegration:
     def test_invalid_mode_raises(self):
         async_ctx = AsyncWorkflowContext(self.mock_base_ctx)
         with pytest.raises(ValueError):
-            with sandbox_scope(async_ctx, "invalid_mode"):
+            with _sandbox_scope(async_ctx, "invalid_mode"):
                 pass
 
 

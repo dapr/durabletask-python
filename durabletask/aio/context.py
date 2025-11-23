@@ -20,7 +20,6 @@ workflow operations.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, cast
 
@@ -43,24 +42,6 @@ from .compatibility import ensure_compatibility
 
 # Generic type variable for awaitable result (module-level)
 T = TypeVar("T")
-
-
-@dataclass(frozen=True)
-class WorkflowInfo:
-    """
-    Read-only metadata snapshot about the running workflow execution.
-
-    Similar to Temporal's workflow.info, this provides convenient access to
-    workflow execution metadata in a single immutable object.
-    """
-
-    instance_id: str
-    workflow_name: Optional[str]
-    is_replaying: bool
-    is_suspended: bool
-    parent_instance_id: Optional[str]
-    current_time: datetime
-    history_event_sequence: int
 
 
 @ensure_compatibility
@@ -130,52 +111,15 @@ class AsyncWorkflowContext(DeterministicContextMixin):
     @property
     def is_suspended(self) -> bool:
         """Check if the workflow is currently suspended."""
-        return getattr(self._base_ctx, "is_suspended", False)
+        return self._base_ctx.is_suspended
 
     @property
     def workflow_name(self) -> Optional[str]:
         """Get the workflow name."""
         return getattr(self._base_ctx, "workflow_name", None)
 
-    @property
-    def parent_instance_id(self) -> Optional[str]:
-        """Get the parent instance ID (for sub-orchestrators)."""
-        return getattr(self._base_ctx, "parent_instance_id", None)
-
-    @property
-    def history_event_sequence(self) -> int:
-        """Get the current history event sequence number."""
-        return getattr(self._base_ctx, "history_event_sequence", 0)
-
-    @property
-    def execution_info(self) -> Optional[Any]:
-        """Get execution_info from the base context if available, else None."""
-        return getattr(self._base_ctx, "execution_info", None)
-
-    @property
-    def info(self) -> WorkflowInfo:
-        """
-        Get a read-only snapshot of workflow execution metadata.
-
-        This provides a Temporal-style info object bundling instance_id, workflow_name,
-        is_replaying, timestamps, and other metadata in a single immutable object.
-        Useful for deterministic logging, idempotency keys, and conditional logic based on replay state.
-
-        Returns:
-            WorkflowInfo: Immutable dataclass with workflow execution metadata
-        """
-        return WorkflowInfo(
-            instance_id=self.instance_id,
-            workflow_name=self.workflow_name,
-            is_replaying=self.is_replaying,
-            is_suspended=self.is_suspended,
-            parent_instance_id=self.parent_instance_id,
-            current_time=self.current_utc_datetime,
-            history_event_sequence=self.history_event_sequence,
-        )
-
     # Activity operations
-    def activity(
+    def call_activity(
         self,
         activity_fn: Union[dt_task.Activity[Any, Any], str],
         *,
@@ -200,24 +144,6 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         return ActivityAwaitable(
             self._base_ctx,
             cast(Callable[..., Any], activity_fn),
-            input=input,
-            retry_policy=retry_policy,
-            app_id=app_id,
-            metadata=metadata,
-        )
-
-    def call_activity(
-        self,
-        activity_fn: Union[dt_task.Activity[Any, Any], str],
-        *,
-        input: Any = None,
-        retry_policy: Any = None,
-        app_id: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
-    ) -> ActivityAwaitable[Any]:
-        """Alias for activity() method for API compatibility."""
-        return self.activity(
-            activity_fn,
             input=input,
             retry_policy=retry_policy,
             app_id=app_id,
