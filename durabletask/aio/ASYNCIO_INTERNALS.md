@@ -209,7 +209,7 @@ async def my_async_orch(ctx, _):
         ...
 ```
 - Debug gating (best_effort only): set `DAPR_WF_DEBUG=true` (or `DT_DEBUG=true`) to enable full detection; otherwise a no‑op tracer is used to minimize overhead.
-- Global disable (regardless of mode): set `DAPR_WF_DISABLE_DETECTION=true` to force `OFF` behavior without changing code.
+- Global disable (regardless of mode): set `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` to force `OFF` behavior without changing code.
 
 What warnings/errors look like:
 - Warning (`BEST_EFFORT`):
@@ -240,7 +240,7 @@ Quick mapping of alternatives:
 Troubleshooting tips:
 - Seeing repeated warnings? They are deduplicated per callsite; different files/lines will warn independently
 - Unexpected strict errors during replay? Confirm you are not creating background tasks (`asyncio.create_task`) or performing I/O in the orchestrator
-- Need to quiet a test temporarily? Use `sandbox_mode=SandboxMode.OFF` for that orchestrator or `DAPR_WF_DISABLE_DETECTION=true` during the run
+- Need to quiet a test temporarily? Use `sandbox_mode=SandboxMode.OFF` for that orchestrator or `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` during the run
 
 ## Integration with Generator Runtime
 

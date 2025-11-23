@@ -468,7 +468,7 @@ class TestAsyncWorkflowContext:
         from unittest.mock import patch
 
         # Test with environment variable
-        with patch.dict(os.environ, {"DAPR_WF_DISABLE_DETECTION": "true"}):
+        with patch.dict(os.environ, {"DAPR_WF_DISABLE_DETERMINISTIC_DETECTION": "true"}):
             disabled_ctx = AsyncWorkflowContext(self.mock_base_ctx)
             assert disabled_ctx._detection_disabled == True
 

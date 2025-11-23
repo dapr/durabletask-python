@@ -35,7 +35,7 @@ from durabletask.deterministic import deterministic_random, deterministic_uuid4
 from .errors import NonDeterminismWarning, SandboxViolationError
 
 # Capture environment variable at module load to avoid triggering non-determinism detection
-_DISABLE_DETECTION = os.getenv("DAPR_WF_DISABLE_DETECTION") == "true"
+_DISABLE_DETECTION = os.getenv("DAPR_WF_DISABLE_DETERMINISTIC_DETECTION") == "true"
 
 
 class SandboxMode(str, Enum):

@@ -90,7 +90,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         self._sandbox_mode: Optional[str] = None
 
         # Performance optimization: Check if detection should be globally disabled
-        self._detection_disabled = os.getenv("DAPR_WF_DISABLE_DETECTION") == "true"
+        self._detection_disabled = os.getenv("DAPR_WF_DISABLE_DETERMINISTIC_DETECTION") == "true"
 
     # Core properties from base context
     @property

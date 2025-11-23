@@ -348,12 +348,12 @@ export DAPR_GRPC_PORT=50001
 
 Configure async workflow behavior and debugging:
 
-- `DAPR_WF_DISABLE_DETECTION` - Disable non-determinism detection (set to `true`)
+- `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION` - Disable non-determinism detection (set to `true`)
 
 Example:
 
 ```sh
-export DAPR_WF_DISABLE_DETECTION=false
+export DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=false
 ```
 
 ### Async workflow authoring

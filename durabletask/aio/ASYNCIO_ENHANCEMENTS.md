@@ -143,12 +143,12 @@ Why enable detection (briefly):
 ### Performance Impact
 - `"off"`: Zero overhead (recommended for production)
 - `"best_effort"/"strict"`: ~100-200% overhead due to Python tracing
-- Global disable: Set `DAPR_WF_DISABLE_DETECTION=true` environment variable
+- Global disable: Set `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` environment variable
 
 ## Environment Variables
 
 - `DAPR_WF_DEBUG=true` / `DT_DEBUG=true` - Enable debug logging, operation tracking, and non-determinism warnings
-- `DAPR_WF_DISABLE_DETECTION=true` - Globally disable non-determinism detection
+- `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` - Globally disable non-determinism detection
 
 ## Developer Mode
 ## Workflow Metadata and Headers (Async Only)

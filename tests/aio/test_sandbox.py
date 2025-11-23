@@ -612,7 +612,7 @@ class TestSandboxScope:
 
     @pytest.mark.asyncio
     async def test_env_disable_detection_allows_create_task(self):
-        """DAPR_WF_DISABLE_DETECTION=true forces mode off; create_task allowed."""
+        """DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true forces mode off; create_task allowed."""
         import durabletask.aio.sandbox as sandbox_module
         from durabletask.aio import AsyncWorkflowContext
 
@@ -632,7 +632,7 @@ class TestSandboxScope:
                 assert await t == "ok"
 
     def test_sandbox_scope_global_disable_env_var(self):
-        """Test that DAPR_WF_DISABLE_DETECTION environment variable works."""
+        """Test that DAPR_WF_DISABLE_DETERMINISTIC_DETECTION environment variable works."""
         import durabletask.aio.sandbox as sandbox_module
 
         original_random = random.random

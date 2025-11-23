@@ -116,7 +116,7 @@ export DAPR_WF_DEBUG=true
 export DT_DEBUG=true
 
 # Disable non-determinism detection globally
-export DAPR_WF_DISABLE_DETECTION=true
+export DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true
 ```
 
 ## Running Specific Test Suites
