@@ -242,8 +242,7 @@ class TestAsyncWorkflowContextCompatibility:
             "uuid4",  # Deterministic UUID (from mixin)
             "new_guid",  # Alias for uuid4
             "random_string",  # Deterministic string generation
-            "add_cleanup",  # Cleanup task registration
-            "get_debug_info",  # Debug information
+            "_get_info_snapshot",  # Debug information
         ]
 
         for method_name in additional_methods:
