@@ -140,17 +140,24 @@ Optional Sandbox (per activation):
 
 ## Sandboxing and Non‑Determinism Detection
 
-The sandbox provides optional, scoped compatibility and detection for common non‑deterministic stdlib calls. It is opt‑in per orchestrator via `sandbox_mode`:
+The sandbox provides scoped compatibility and detection for common non‑deterministic stdlib calls. It is configured per orchestrator via `sandbox_mode`:
 
-- `off` (default): No patching or detection; zero overhead. Use deterministic APIs only.
-- `best_effort`: Patch common functions within a scope and emit warnings on detected non‑determinism.
-- `strict`: As above, but raise `SandboxViolationError` on detected calls.
+- `best_effort` (default): Patch common functions within a scope and emit warnings on detected non‑determinism when debug mode is enabled.
+- `strict`: Patch common functions and raise `SandboxViolationError` on detected calls.
+- `off`: No patching or detection; zero overhead. Use deterministic APIs only.
 
-Patched targets (best‑effort):
+Patched targets (best‑effort and strict):
 - `asyncio.sleep` → deterministic timer awaitable
-- `random` module functions (via a deterministic `Random` instance)
+- `asyncio.gather` → replay-safe one-shot awaitable wrapper using WhenAllAwaitable
+- `random` module functions (random, randrange, randint, getrandbits via deterministic PRNG)
 - `uuid.uuid4` → derived from deterministic PRNG
 - `time.time/time_ns` → orchestration time
+
+Additional blocks in strict mode only:
+- `asyncio.create_task` → raises SandboxViolationError
+- `builtins.open` → raises SandboxViolationError
+- `os.urandom` → raises SandboxViolationError
+- `secrets.token_bytes/token_hex` → raises SandboxViolationError
 
 Important limitations:
 - `datetime.datetime.now()` is not patched (type immutability). Use `ctx.now()` or `ctx.current_utc_datetime`.
@@ -174,23 +181,21 @@ Modes and behavior:
 - `SandboxMode.OFF`:
   - No tracing, no patching, zero overhead
   - Detector is not active
-- `SandboxMode.BEST_EFFORT`:
-  - Patches selected stdlib functions
-  - Installs tracer only when `ctx._debug_mode` is true; otherwise a no‑op tracer is used to keep overhead minimal
+- `SandboxMode.BEST_EFFORT` (default):
+  - Patches selected stdlib functions (asyncio.sleep, random, uuid.uuid4, time.time, asyncio.gather)
+  - Installs tracer only when `ctx._debug_mode` is true; otherwise no tracer (minimal overhead)
   - Emits `NonDeterminismWarning` once per unique callsite with a suggested deterministic alternative
 - `SandboxMode.STRICT`:
-  - Patches selected stdlib functions and blocks dangerous operations (e.g., `open`, `os.urandom`, `secrets.*`)
+  - Patches selected stdlib functions and blocks dangerous operations (e.g., `open`, `os.urandom`, `secrets.*`, `asyncio.create_task`)
   - Installs full tracer regardless of debug flag
   - Raises `SandboxViolationError` on first detection with details and suggestions
 
-When to use it (recommended):
-- During development to quickly surface accidental non‑determinism in orchestrator code
-- When integrating third‑party libraries that might call time/random/uuid internally
-- In CI for a dedicated “determinism” job (short test matrix), using `BEST_EFFORT` for warnings or `STRICT` for enforcement
+When to use each mode:
+- `BEST_EFFORT` (default): Recommended for most use cases. Patches make standard asyncio patterns work correctly with minimal overhead.
+- `STRICT`: Use in CI/testing to enforce determinism and catch violations early.
+- `OFF`: Use only if you're certain all code uses `ctx.*` methods exclusively and want absolute zero overhead.
 
-When not to use it:
-- Production environments (prefer `OFF` for zero overhead)
-- Performance‑sensitive local loops (e.g., microbenchmarks) unless you are specifically testing detection overhead
+Note: `BEST_EFFORT` is now the default because it makes workflows "just work" with standard asyncio code patterns.
 
 Enabling and controlling the detector:
 - Per‑orchestrator registration:
@@ -220,9 +225,11 @@ What warnings/errors look like:
   - Includes violation type, suggested alternative, `workflow_name`, and `instance_id` when available
 
 Overhead and performance:
-- `OFF`: zero overhead
-- `BEST_EFFORT`: minimal overhead by default; full detection overhead only when debug is enabled
-- `STRICT`: tracing overhead present; recommended only for testing/enforcement, not for production
+- `OFF`: zero overhead (no patching, no detection)
+- `BEST_EFFORT` (default): minimal overhead from patching; lightweight noop tracer unless debug mode enabled (full detection tracer only when `DAPR_WF_DEBUG=true`)
+- `STRICT`: ~100-200% overhead due to full Python tracing; recommended only for testing/enforcement
+
+Note: The patching overhead (module-level function replacement) is minimal. The tracing overhead (sys.settrace) is more significant when full detection is enabled.
 
 Limitations and caveats:
 - Direct imports like `from random import random` bind the function and may bypass patching

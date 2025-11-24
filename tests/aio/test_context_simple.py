@@ -34,7 +34,6 @@ from durabletask.aio import (
     TimeoutAwaitable,
     WhenAllAwaitable,
     WhenAnyAwaitable,
-    WhenAnyResultAwaitable,
 )
 
 
@@ -182,19 +181,19 @@ class TestAsyncWorkflowContextBasic:
     def test_sleep_method(self):
         """Test sleep() method."""
         # Test with float
-        awaitable = self.ctx.sleep(5.0)
+        awaitable = self.ctx.create_timer(5.0)
 
         assert isinstance(awaitable, SleepAwaitable)
         assert awaitable._duration == 5.0
 
         # Test with timedelta
         duration = timedelta(minutes=1)
-        awaitable = self.ctx.sleep(duration)
+        awaitable = self.ctx.create_timer(duration)
         assert awaitable._duration is duration
 
         # Test with datetime
         deadline = datetime(2023, 1, 1, 13, 0, 0)
-        awaitable = self.ctx.sleep(deadline)
+        awaitable = self.ctx.create_timer(deadline)
         assert awaitable._duration is deadline
 
     def test_create_timer_method(self):
@@ -240,19 +239,6 @@ class TestAsyncWorkflowContextBasic:
         assert isinstance(result, WhenAnyAwaitable)
         assert result._originals == awaitables
 
-    def test_when_any_with_result_method(self):
-        """Test when_any_with_result() method."""
-        awaitable1 = Mock(spec=AwaitableBase)
-        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitable2 = Mock(spec=AwaitableBase)
-        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitables = [awaitable1, awaitable2]
-
-        result = self.ctx.when_any_with_result(awaitables)
-
-        assert isinstance(result, WhenAnyResultAwaitable)
-        assert result._originals == awaitables
-
     def test_with_timeout_method(self):
         """Test with_timeout() method."""
         mock_awaitable = Mock()
@@ -262,16 +248,6 @@ class TestAsyncWorkflowContextBasic:
         assert isinstance(result, TimeoutAwaitable)
         assert result._awaitable is mock_awaitable
         assert result._timeout_seconds == 5.0
-
-    def test_gather_method_default(self):
-        """Test gather() method with default behavior."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
-
-        result = self.ctx.gather(awaitable1, awaitable2)
-
-        assert isinstance(result, WhenAllAwaitable)
-        assert result._tasks_like == [awaitable1, awaitable2]
 
     def test_set_custom_status_method(self):
         """Test set_custom_status() method."""

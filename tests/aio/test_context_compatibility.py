@@ -233,13 +233,10 @@ class TestAsyncWorkflowContextCompatibility:
         """Test that AsyncWorkflowContext provides additional async-specific methods."""
         # These are enhancements that don't exist in base OrchestrationContext
         additional_methods = [
-            "sleep",  # Alias for create_timer
             "sub_orchestrator",  # Alias for call_sub_orchestrator
             "when_all",  # Concurrency primitive
-            "when_any",  # Concurrency primitive
-            "when_any_with_result",  # Enhanced concurrency primitive
+            "when_any",  # Concurrency primitive (returns tuple)
             "with_timeout",  # Timeout wrapper
-            "gather",  # asyncio.gather equivalent
             "now",  # Deterministic datetime (from mixin)
             "random",  # Deterministic random (from mixin)
             "uuid4",  # Deterministic UUID (from mixin)

@@ -375,8 +375,11 @@ class WhenAllAwaitable(AwaitableBase[List[TOutput]]):
             raise
 
 
-class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
-    """Awaitable for when_any operations (wait for any task to complete)."""
+class WhenAnyAwaitable(AwaitableBase[tuple[int, Any]]):
+    """Awaitable for when_any operations (wait for any task to complete).
+
+    Returns a tuple of (index, result) where index is the position of the completed task.
+    """
 
     __slots__ = ("_originals", "_underlying")
 
@@ -409,94 +412,8 @@ class WhenAnyAwaitable(AwaitableBase[task.Task[Any]]):
         """Convert to a when_any task."""
         return cast(task.Task[Any], task.when_any(self._ensure_underlying()))
 
-    def __await__(self) -> Generator[Any, Any, Any]:
-        """Return a proxy that compares equal to the original item and exposes get_result()."""
-        underlying = self._ensure_underlying()
-        when_any_task = task.when_any(underlying)
-        completed = yield when_any_task
-
-        class _CompletedProxy:
-            __slots__ = ("_original", "_completed")
-
-            def __init__(self, original: Any, completed_obj: Any):
-                self._original = original
-                self._completed = completed_obj
-
-            def __eq__(self, other: object) -> bool:
-                return other is self._original
-
-            def get_result(self) -> Any:
-                # Prefer task.get_result() if available, else try attribute access
-                if hasattr(self._completed, "get_result") and callable(self._completed.get_result):
-                    return self._completed.get_result()
-                return getattr(self._completed, "result", None)
-
-            @property
-            def __dict__(self) -> dict[str, Any]:
-                """Expose a dict-like view for compatibility with user code."""
-                return {
-                    "_original": self._original,
-                    "_completed": self._completed,
-                }
-
-            def __repr__(self) -> str:  # pragma: no cover
-                return f"<WhenAnyCompleted proxy for {self._original!r}>"
-
-        # If the runtime returned a non-task sentinel (e.g., tests), assume first item won
-        if not isinstance(completed, task.Task):
-            return _CompletedProxy(self._originals[0], completed)
-
-        # Map completed task back to the original item and return proxy
-        for original, under in zip(self._originals, underlying, strict=False):
-            if completed == under:
-                return _CompletedProxy(original, completed)
-
-        # Fallback proxy; treat the first as original
-        return _CompletedProxy(self._originals[0], completed)
-
-
-class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
-    """
-    Enhanced when_any that returns both the index and result of the first completed task.
-
-    This is useful when you need to know which task completed first, not just its result.
-    """
-
-    __slots__ = ("_originals", "_underlying")
-
-    def __init__(self, tasks_like: Iterable[Union[AwaitableBase[Any], task.Task[Any]]]):
-        """
-        Initialize a when_any_with_result awaitable.
-
-        Args:
-            tasks_like: Iterable of awaitables or tasks to wait for
-        """
-        super().__init__()
-        self._originals = list(tasks_like)
-        # Defer conversion to avoid issues with incomplete mocks and coroutine reuse
-        self._underlying: Optional[List[task.Task[Any]]] = None
-
-    def _ensure_underlying(self) -> List[task.Task[Any]]:
-        """Lazily convert originals to tasks, caching the result."""
-        if self._underlying is None:
-            self._underlying = []
-            for a in self._originals:
-                if isinstance(a, AwaitableBase):
-                    self._underlying.append(a._to_task())
-                elif isinstance(a, task.Task):
-                    self._underlying.append(a)
-                else:
-                    raise TypeError(
-                        "when_any_with_result expects AwaitableBase or durabletask.task.Task"
-                    )
-        return self._underlying
-
-    def _to_task(self) -> task.Task[Any]:
-        """Convert to a when_any task with result tracking."""
-        return cast(task.Task[Any], task.when_any(self._ensure_underlying()))
-
     def __await__(self) -> Generator[Any, Any, tuple[int, Any]]:
-        """Override to provide index + result tuple."""
+        """Return (index, result) tuple of the first completed task."""
         underlying = self._ensure_underlying()
         when_any_task = task.when_any(underlying)
         completed_task = yield when_any_task
@@ -504,10 +421,14 @@ class WhenAnyResultAwaitable(AwaitableBase[tuple[int, Any]]):
         # The completed_task should match one of our underlying tasks
         for i, underlying_task in enumerate(underlying):
             if underlying_task == completed_task:
-                return (i, completed_task.result if hasattr(completed_task, "result") else None)
+                result = (
+                    completed_task.get_result() if hasattr(completed_task, "get_result") else None
+                )
+                return (i, result)
 
         # Fallback: return the completed task result with index 0
-        return (0, completed_task.result if hasattr(completed_task, "result") else None)
+        result = completed_task.get_result() if hasattr(completed_task, "get_result") else None
+        return (0, result)
 
 
 class TimeoutAwaitable(AwaitableBase[TOutput]):
@@ -625,24 +546,3 @@ def _resolve_callable(module_name: str, qualname: str) -> Callable[..., Any]:
     if not callable(obj):
         raise TypeError(f"resolved object {module_name}.{qualname} is not callable")
     return cast(Callable[..., Any], obj)
-
-
-def gather(
-    *awaitables: AwaitableBase[Any], return_exceptions: bool = False
-) -> WhenAllAwaitable[Any]:
-    """
-    Gather multiple awaitables, similar to asyncio.gather.
-
-    Args:
-        *awaitables: The awaitables to gather
-        return_exceptions: If True, exceptions are returned as results instead of raised
-
-    Returns:
-        A WhenAllAwaitable that will complete when all awaitables complete
-    """
-    if return_exceptions:
-        # Wrap each awaitable to swallow exceptions
-        wrapped = [SwallowExceptionAwaitable(aw) for aw in awaitables]
-        return WhenAllAwaitable(wrapped)
-    # Empty fast-path handled by WhenAllAwaitable
-    return WhenAllAwaitable(awaitables)

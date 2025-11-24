@@ -779,18 +779,6 @@ class TestSandboxScope:
         # Should be different
         assert results1 != results2
 
-    def test_alias_context_managers_cover(self):
-        """Call the alias context managers to cover their paths."""
-        from durabletask.aio.sandbox import _sandbox_best_effort, _sandbox_off, _sandbox_strict
-
-        with _sandbox_off(self.mock_ctx):
-            pass
-        with _sandbox_best_effort(self.mock_ctx):
-            pass
-        with _sandbox_strict(self.mock_ctx):
-            # strict does patch; simple no-op body is fine
-            pass
-
     def test_sandbox_missing_context_attributes(self):
         """Test sandbox with context missing various attributes."""
 

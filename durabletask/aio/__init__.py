@@ -18,8 +18,6 @@ from .awaitables import (
     TimeoutAwaitable,
     WhenAllAwaitable,
     WhenAnyAwaitable,
-    WhenAnyResultAwaitable,
-    gather,
 )
 from .client import AsyncTaskHubGrpcClient
 
@@ -60,10 +58,8 @@ __all__ = [
     "ExternalEventAwaitable",
     "WhenAllAwaitable",
     "WhenAnyAwaitable",
-    "WhenAnyResultAwaitable",
     "TimeoutAwaitable",
     "SwallowExceptionAwaitable",
-    "gather",
     # Sandbox and utilities
     "SandboxMode",
     "_NonDeterminismDetector",

@@ -35,8 +35,6 @@ from .awaitables import (
     TimeoutAwaitable,
     WhenAllAwaitable,
     WhenAnyAwaitable,
-    WhenAnyResultAwaitable,
-    gather,
 )
 from .compatibility import ensure_compatibility
 
@@ -208,8 +206,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             metadata=metadata,
         )
 
-    # Timer operations
-    def sleep(self, duration: Union[float, timedelta, datetime]) -> SleepAwaitable:
+    def create_timer(self, duration: Union[float, timedelta, datetime]) -> SleepAwaitable:
         """
         Create an awaitable for sleeping/waiting.
 
@@ -221,10 +218,6 @@ class AsyncWorkflowContext(DeterministicContextMixin):
         """
         self._log_operation("sleep", {"duration": duration})
         return SleepAwaitable(self._base_ctx, duration)
-
-    def create_timer(self, duration: Union[float, timedelta, datetime]) -> SleepAwaitable:
-        """Alias for sleep() method for API compatibility."""
-        return self.sleep(duration)
 
     # External event operations
     def wait_for_external_event(self, name: str) -> ExternalEventAwaitable[Any]:
@@ -262,41 +255,11 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             awaitables: List of awaitables to wait for
 
         Returns:
-            An awaitable that will complete with the first completed task
+            An awaitable that will complete with (index, result) tuple where index is the
+            position of the first completed awaitable in the input list
         """
         self._log_operation("when_any", {"count": len(awaitables)})
         return WhenAnyAwaitable(awaitables)
-
-    def when_any_with_result(self, awaitables: List[Any]) -> WhenAnyResultAwaitable:
-        """
-        Create an awaitable that completes when any awaitable completes, returning index and result.
-
-        Args:
-            awaitables: List of awaitables to wait for
-
-        Returns:
-            An awaitable that will complete with (index, result) tuple
-        """
-        self._log_operation("when_any_with_result", {"count": len(awaitables)})
-        return WhenAnyResultAwaitable(awaitables)
-
-    def gather(
-        self, *awaitables: AwaitableBase[Any], return_exceptions: bool = False
-    ) -> WhenAllAwaitable[Any]:
-        """
-        Gather multiple awaitables, similar to asyncio.gather.
-
-        Args:
-            *awaitables: The awaitables to gather
-            return_exceptions: If True, exceptions are returned as results instead of raised
-
-        Returns:
-            An awaitable that will complete when all awaitables complete
-        """
-        self._log_operation(
-            "gather", {"count": len(awaitables), "return_exceptions": return_exceptions}
-        )
-        return gather(*awaitables, return_exceptions=return_exceptions)
 
     # Enhanced operations
     def with_timeout(self, awaitable: "AwaitableBase[T]", timeout: float) -> TimeoutAwaitable[T]:
@@ -342,49 +305,6 @@ class AsyncWorkflowContext(DeterministicContextMixin):
                 self._base_ctx.continue_as_new(input_data)
             else:
                 self._base_ctx.continue_as_new(input_data, save_events=save_events)
-
-    # Metadata and header methods
-    def set_metadata(self, metadata: Dict[str, str]) -> None:
-        """
-        Set metadata for the workflow instance.
-
-        Args:
-            metadata: Dictionary of metadata key-value pairs
-        """
-        if hasattr(self._base_ctx, "set_metadata"):
-            self._base_ctx.set_metadata(metadata)
-        self._log_operation("set_metadata", {"metadata": metadata})
-
-    def get_metadata(self) -> Optional[Dict[str, str]]:
-        """
-        Get metadata for the workflow instance.
-
-        Returns:
-            Dictionary of metadata or None if not available
-        """
-        if hasattr(self._base_ctx, "get_metadata"):
-            val: Any = self._base_ctx.get_metadata()
-            if isinstance(val, dict):
-                return cast(Dict[str, str], val)
-        return None
-
-    def set_headers(self, headers: Dict[str, str]) -> None:
-        """
-        Set headers for the workflow instance (alias for set_metadata).
-
-        Args:
-            headers: Dictionary of header key-value pairs
-        """
-        self.set_metadata(headers)
-
-    def get_headers(self) -> Optional[Dict[str, str]]:
-        """
-        Get headers for the workflow instance (alias for get_metadata).
-
-        Returns:
-            Dictionary of headers or None if not available
-        """
-        return self.get_metadata()
 
     # Enhanced context management
     async def __aenter__(self) -> "AsyncWorkflowContext":

@@ -118,7 +118,7 @@ class TestCICompatibility:
         extra_methods = [
             item.split(": ")[1] for item in report["extra_members"] if "method:" in item
         ]
-        expected_enhancements = ["sleep", "when_all", "when_any", "gather"]
+        expected_enhancements = ["when_all", "when_any"]
 
         for enhancement in expected_enhancements:
             assert enhancement in extra_methods, f"Expected enhancement '{enhancement}' not found"

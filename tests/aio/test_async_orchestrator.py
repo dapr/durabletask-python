@@ -26,7 +26,7 @@ TEST_INSTANCE_ID = "async-test-1"
 def test_async_activity_and_sleep():
     async def orch(ctx, _):
         a = await ctx.call_activity("echo", input=1)
-        await ctx.sleep(1)
+        await ctx.create_timer(1)
         b = await ctx.call_activity("echo", input=a + 1)
         return b
 
@@ -88,7 +88,7 @@ def test_async_when_all_any_and_events():
         t1 = ctx.call_activity("a", input=1)
         t2 = ctx.call_activity("b", input=2)
         await ctx.when_all([t1, t2])
-        _ = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(0.1)])
+        _ = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.create_timer(0.1)])
         return "ok"
 
     def a(_, x):
@@ -283,13 +283,17 @@ def test_async_ctx_metadata_passthrough():
     assert out["replay"] is False
 
 
-def test_async_gather_happy_path_and_return_exceptions():
+def test_async_when_all_with_mixed_success_and_failure():
     async def orch(ctx, _):
         a = ctx.call_activity("ok", input=1)
         b = ctx.call_activity("boom", input=2)
         c = ctx.call_activity("ok", input=3)
-        vals = await ctx.gather(a, b, c, return_exceptions=True)
-        return vals
+        # when_all will fail-fast when b fails
+        try:
+            vals = await ctx.when_all([a, b, c])
+            return vals
+        except Exception as e:
+            return {"error": str(e)}
 
     def ok(_, x):
         return x
@@ -398,7 +402,7 @@ def test_async_when_any_ignores_losers_deterministically():
 def test_async_termination_maps_to_cancellation():
     async def orch(ctx, _):
         try:
-            await ctx.sleep(10)
+            await ctx.create_timer(10)
         except Exception as e:
             # Should surface as cancellation
             return type(e).__name__
@@ -430,7 +434,7 @@ def test_async_suspend_sets_flag_and_resumes_without_raising():
     async def orch(ctx, _):
         # observe suspension via flag and then continue normally
         before = ctx.is_suspended
-        await ctx.sleep(0.1)
+        await ctx.create_timer(0.1)
         after = ctx.is_suspended
         return {"before": before, "after": after}
 

@@ -138,25 +138,12 @@ class TestAsyncWorkflowContext:
         with patch.dict(os.environ, {"DAPR_WF_DEBUG": "true"}):
             ctx = AsyncWorkflowContext(self.mock_base_ctx)
 
-            ctx.sleep(5.0)
+            ctx.create_timer(5.0)
 
             assert len(ctx._operation_history) == 1
             op = ctx._operation_history[0]
             assert op["operation"] == "sleep"
             assert op["details"]["duration"] == 5.0
-
-    def test_when_any_with_result(self):
-        from durabletask.aio import AwaitableBase
-
-        awaitable1 = Mock(spec=AwaitableBase)
-        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitable2 = Mock(spec=AwaitableBase)
-        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitables = [awaitable1, awaitable2]
-        result_awaitable = self.ctx.when_any_with_result(awaitables)
-
-        assert result_awaitable is not None
-        assert hasattr(result_awaitable, "_originals")
 
     def test_with_timeout(self):
         mock_awaitable = Mock()
@@ -309,19 +296,6 @@ class TestConcurrencyPrimitives:
         self.mock_base_ctx.is_replaying = False
         self.mock_base_ctx.is_suspended = False
         self.ctx = AsyncWorkflowContext(self.mock_base_ctx)
-
-    def test_when_any_result_awaitable(self):
-        from durabletask.aio import AwaitableBase, WhenAnyResultAwaitable
-
-        awaitable1 = Mock(spec=AwaitableBase)
-        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitable2 = Mock(spec=AwaitableBase)
-        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
-        mock_awaitables = [awaitable1, awaitable2]
-        awaitable = WhenAnyResultAwaitable(mock_awaitables)
-
-        assert awaitable._originals == mock_awaitables
-        assert hasattr(awaitable, "_to_task")
 
     def test_timeout_awaitable(self):
         from durabletask.aio import TimeoutAwaitable

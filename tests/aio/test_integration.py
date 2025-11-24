@@ -237,7 +237,7 @@ class TestAsyncWorkflowIntegration:
             initial_result = await ctx.call_activity("start_work", input="begin")
 
             # Wait for specified delay
-            await ctx.sleep(delay_seconds)
+            await ctx.create_timer(delay_seconds)
 
             # Complete work
             final_result = await ctx.call_activity("complete_work", input=initial_result)
@@ -302,13 +302,12 @@ class TestAsyncWorkflowIntegration:
             work_task = ctx.call_activity("long_running_work", input="start")
 
             # Create a timeout
-            timeout_task = ctx.sleep(timeout_seconds)
+            timeout_task = ctx.create_timer(timeout_seconds)
 
             # Race between work completion and timeout
-            completed_task = await ctx.when_any([work_task, timeout_task])
+            idx, result = await ctx.when_any([work_task, timeout_task])
 
-            if completed_task == work_task:
-                result = completed_task.get_result()
+            if idx == 0:
                 return {"status": "completed", "result": result}
             else:
                 return {"status": "timeout", "result": None}

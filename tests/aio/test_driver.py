@@ -75,7 +75,7 @@ class TestCoroutineOrchestratorRunner:
         runner = CoroutineOrchestratorRunner(test_workflow)
 
         assert runner._async_orchestrator is test_workflow
-        assert runner._sandbox_mode == "off"
+        assert runner._sandbox_mode == "best_effort"
         assert runner._workflow_name == "test_workflow"
 
     def test_runner_with_sandbox_mode(self):

@@ -358,7 +358,7 @@ export DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=false
 
 ### Async workflow authoring
 
-For a deeper tour of the async authoring surface (determinism helpers, sandbox modes, timeouts, concurrency patterns), see the Async Enhancements guide: [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md). The developer-facing migration notes are in [DEVELOPER_TRANSITION_GUIDE.md](./DEVELOPER_TRANSITION_GUIDE.md).
+For a deeper tour of the async authoring surface (determinism helpers, sandbox modes, timeouts, concurrency patterns), see the Async Enhancements guide: [ASYNC_ENHANCEMENTS.md](./ASYNC_ENHANCEMENTS.md).
 
 You can author orchestrators with `async def` using the new `durabletask.aio` package, which provides a comprehensive async workflow API:
 
@@ -376,9 +376,11 @@ with TaskHubGrpcWorker() as worker:
     worker.add_orchestrator(my_orch)
 ```
 
-Optional sandbox mode (`best_effort` or `strict`) patches `asyncio.sleep`, `random`, `uuid.uuid4`, and `time.time` within the workflow step to deterministic equivalents. This is best-effort and not a correctness guarantee.
+The sandbox (enabled by default) patches standard Python functions to deterministic equivalents during workflow execution. This allows natural async code like `asyncio.sleep()`, `random.random()`, and `asyncio.gather()` to work correctly with workflow replay. Three modes are available:
 
-In `strict` mode, `asyncio.create_task` is blocked inside workflows to preserve determinism and will raise a `SandboxViolationError` if used.
+- `"best_effort"` (default): Patches functions, minimal overhead
+- `"strict"`: Patches + blocks dangerous operations (file I/O, `asyncio.create_task`)
+- `"off"`: No patching (requires manual use of `ctx.*` methods everywhere)
 
 > **Enhanced Sandbox Features**: The enhanced version includes comprehensive non-determinism detection, timeout support, enhanced concurrency primitives, and debugging tools. See [ASYNC_ENHANCEMENTS.md](./durabletask/aio/ASYNCIO_ENHANCEMENTS.md) for complete documentation.
 
@@ -406,13 +408,10 @@ val = await ctx.wait_for_external_event("approval")
 - Concurrency:
 ```python
 t1 = ctx.call_activity("a"); t2 = ctx.call_activity("b")
-await ctx.when_all([t1, t2])
-winner = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.sleep(5)])
-
-# gather combines awaitables and preserves order
-results = await ctx.gather(t1, t2)
-# gather with exception capture
-results_or_errors = await ctx.gather(t1, t2, return_exceptions=True)
+# when_all waits for all tasks and returns results in order
+results = await ctx.when_all([t1, t2])
+# when_any returns (index, result) tuple of first completed task
+idx, result = await ctx.when_any([ctx.wait_for_external_event("x"), ctx.create_timer(5)])
 ```
 
 #### Async vs. generator API differences
@@ -457,15 +456,6 @@ except Exception as e:
     ...
 ```    
 
-Or capture with gather:
-
-```python
-res = await ctx.gather(ctx.call_activity("a"), return_exceptions=True)
-if isinstance(res[0], Exception):
-    ...
-```
-
-
 - Sub-orchestrations (function reference or registered name):
 ```python
 out = await ctx.call_sub_orchestrator(child_fn, input=payload)
@@ -476,20 +466,6 @@ out = await ctx.call_sub_orchestrator(child_fn, input=payload)
 ```python
 now = ctx.now(); rid = ctx.random().random(); uid = ctx.uuid4()
 ```
-
-- Workflow metadata/headers (async only for now):
-```python
-# Attach contextual metadata (e.g., tracing, tenant, app info)
-ctx.set_metadata({"x-trace": trace_id, "tenant": "acme"})
-md = ctx.get_metadata()
-
-# Header aliases (same data)
-ctx.set_headers({"region": "us-east"})
-headers = ctx.get_headers()
-```
-Notes:
-- Useful for routing, observability, and cross-cutting concerns passed along activity/sub-orchestrator calls via the sidecar.
-- In python-sdk, available for both async and generator orchestrators. In this repo, currently implemented on `durabletask.aio`; generator parity is planned.
 
 - Cross-app activity/sub-orchestrator routing (async only for now):
 ```python

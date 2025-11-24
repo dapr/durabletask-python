@@ -176,18 +176,17 @@ class TestAsyncWorkflowE2E:
         async def when_any_activities(ctx: AsyncWorkflowContext, _) -> dict:
             t1 = ctx.call_activity(test_activity, input="a1")
             t2 = ctx.call_activity(test_activity, input="a2")
-            winner = await ctx.when_any([t1, t2])
-            res = winner.get_result()
-            return {"result": res}
+            idx, result = await ctx.when_any([t1, t2])
+            return {"result": result}
 
         cls.when_any_activities = when_any_activities
 
-        # when_any_with_result mixing activity and timer (register early)
+        # when_any mixing activity and timer (register early)
         @cls.worker.add_async_orchestrator
         async def when_any_with_timer(ctx: AsyncWorkflowContext, _) -> dict:
             t_activity = ctx.call_activity(test_activity, input="wa")
-            t_timer = ctx.sleep(0.1)
-            idx, res = await ctx.when_any_with_result([t_activity, t_timer])
+            t_timer = ctx.create_timer(0.1)
+            idx, res = await ctx.when_any([t_activity, t_timer])
             return {"index": idx, "has_result": res is not None}
 
         cls.when_any_with_timer = when_any_with_timer
@@ -198,7 +197,7 @@ class TestAsyncWorkflowE2E:
             start_time = ctx.now()
 
             # Wait for specified delay
-            await ctx.sleep(delay_seconds)
+            await ctx.create_timer(delay_seconds)
 
             end_time = ctx.now()
 
@@ -314,12 +313,11 @@ class TestAsyncWorkflowE2E:
         async def when_any_event_or_timeout(ctx: AsyncWorkflowContext, event_name: str) -> dict:
             print(f"[E2E] when_any_event_or_timeout start id={ctx.instance_id} evt={event_name}")
             evt = ctx.wait_for_external_event(event_name)
-            timeout = ctx.sleep(5.0)
-            winner = await ctx.when_any([evt, timeout])
-            if winner == evt:
-                val = winner.get_result()
-                print(f"[E2E] when_any_event_or_timeout winner=event val={val}")
-                return {"winner": "event", "val": val}
+            timeout = ctx.create_timer(5.0)
+            idx, result = await ctx.when_any([evt, timeout])
+            if idx == 0:
+                print(f"[E2E] when_any_event_or_timeout winner=event val={result}")
+                return {"winner": "event", "val": result}
             print("[E2E] when_any_event_or_timeout winner=timeout")
             return {"winner": "timeout"}
 

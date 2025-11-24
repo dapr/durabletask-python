@@ -20,7 +20,7 @@ import durabletask.internal.orchestrator_service_pb2 as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import deterministic, task
-from durabletask.aio import AsyncWorkflowContext, CoroutineOrchestratorRunner
+from durabletask.aio import AsyncWorkflowContext, CoroutineOrchestratorRunner, SandboxMode
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
@@ -106,13 +106,13 @@ class _Registry:
         fn: Optional[Callable[[AsyncWorkflowContext, Any], Any]] = None,
         *,
         name: Optional[str] = None,
-        sandbox_mode: str = "off",
+        sandbox_mode: str | SandboxMode = "best_effort",
     ) -> Union[str, Callable[[Callable[[AsyncWorkflowContext, Any], Any]], str]]:
         """Registers an async orchestrator by wrapping it with the coroutine driver.
 
         Can be used as:
         - Simple decorator: @registry.add_async_orchestrator
-        - Decorator with args: @registry.add_async_orchestrator(sandbox_mode="best_effort")
+        - Decorator with args: @registry.add_async_orchestrator(sandbox_mode="strict")
         - Direct call: registry.add_async_orchestrator(my_func, name="MyOrch")
         """
 
@@ -341,7 +341,7 @@ class TaskHubGrpcWorker:
         fn: Optional[Callable[[AsyncWorkflowContext, Any], Any]] = None,
         *,
         name: Optional[str] = None,
-        sandbox_mode: str = "off",
+        sandbox_mode: str | SandboxMode = "best_effort",
     ) -> Union[str, Callable[[Callable[[AsyncWorkflowContext, Any], Any]], str]]:
         """Registers an async orchestrator by wrapping it with the coroutine driver.
 
@@ -350,7 +350,7 @@ class TaskHubGrpcWorker:
 
         Can be used as:
         - Simple decorator: @worker.add_async_orchestrator
-        - Decorator with args: @worker.add_async_orchestrator(sandbox_mode="best_effort")
+        - Decorator with args: @worker.add_async_orchestrator(sandbox_mode="strict")
         - Direct call: worker.add_async_orchestrator(my_func, name="MyOrch")
         """
 

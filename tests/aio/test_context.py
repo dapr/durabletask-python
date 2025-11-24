@@ -31,7 +31,6 @@ from durabletask.aio import (
     TimeoutAwaitable,
     WhenAllAwaitable,
     WhenAnyAwaitable,
-    WhenAnyResultAwaitable,
 )
 
 
@@ -197,19 +196,19 @@ class TestAsyncWorkflowContext:
     def test_sleep_method(self):
         """Test sleep() method."""
         # Test with float
-        awaitable = self.ctx.sleep(5.0)
+        awaitable = self.ctx.create_timer(5.0)
 
         assert isinstance(awaitable, SleepAwaitable)
         assert awaitable._duration == 5.0
 
         # Test with timedelta
         duration = timedelta(minutes=1)
-        awaitable = self.ctx.sleep(duration)
+        awaitable = self.ctx.create_timer(duration)
         assert awaitable._duration is duration
 
         # Test with datetime
         deadline = datetime(2023, 1, 1, 13, 0, 0)
-        awaitable = self.ctx.sleep(deadline)
+        awaitable = self.ctx.create_timer(deadline)
         assert awaitable._duration is deadline
 
     def test_wait_for_external_event_method(self):
@@ -245,19 +244,6 @@ class TestAsyncWorkflowContext:
         assert isinstance(result, WhenAnyAwaitable)
         assert result._originals == awaitables
 
-    def test_when_any_with_result_method(self):
-        """Test when_any_with_result() method."""
-        awaitable1 = Mock(spec=AwaitableBase)
-        awaitable1._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitable2 = Mock(spec=AwaitableBase)
-        awaitable2._to_task.return_value = Mock(spec=dt_task.Task)
-        awaitables = [awaitable1, awaitable2]
-
-        result = self.ctx.when_any_with_result(awaitables)
-
-        assert isinstance(result, WhenAnyResultAwaitable)
-        assert result._originals == awaitables
-
     def test_with_timeout_method(self):
         """Test with_timeout() method."""
         mock_awaitable = Mock()
@@ -268,28 +254,6 @@ class TestAsyncWorkflowContext:
         assert result._awaitable is mock_awaitable
         assert result._timeout_seconds == 5.0
         assert result._ctx is self.mock_base_ctx
-
-    def test_gather_method_default(self):
-        """Test gather() method with default behavior."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
-
-        result = self.ctx.gather(awaitable1, awaitable2)
-
-        assert isinstance(result, WhenAllAwaitable)
-        assert result._tasks_like == [awaitable1, awaitable2]
-
-    def test_gather_method_with_return_exceptions(self):
-        """Test gather() method with return_exceptions=True."""
-        awaitable1 = Mock()
-        awaitable2 = Mock()
-
-        result = self.ctx.gather(awaitable1, awaitable2, return_exceptions=True)
-
-        # gather with return_exceptions=True returns WhenAllAwaitable with wrapped awaitables
-        assert isinstance(result, WhenAllAwaitable)
-        # The awaitables should be wrapped in SwallowExceptionAwaitable
-        assert len(result._tasks_like) == 2
 
     def test_set_custom_status_method(self):
         """Test set_custom_status() method."""
@@ -312,45 +276,6 @@ class TestAsyncWorkflowContext:
         self.ctx.continue_as_new(new_input, save_events=True)
 
         self.mock_base_ctx.continue_as_new.assert_called_once_with(new_input, save_events=True)
-
-    def test_metadata_methods(self):
-        """Test set_metadata() and get_metadata() methods."""
-        # Mock the base context methods
-        self.mock_base_ctx.set_metadata = Mock()
-        self.mock_base_ctx.get_metadata = Mock(return_value={"key": "value"})
-
-        # Test set_metadata
-        metadata = {"test": "data"}
-        self.ctx.set_metadata(metadata)
-        self.mock_base_ctx.set_metadata.assert_called_once_with(metadata)
-
-        # Test get_metadata
-        result = self.ctx.get_metadata()
-        assert result == {"key": "value"}
-        self.mock_base_ctx.get_metadata.assert_called_once()
-
-    def test_metadata_methods_not_supported(self):
-        """Test metadata methods when not supported by base context."""
-        # Should not raise errors
-        self.ctx.set_metadata({"test": "data"})
-        result = self.ctx.get_metadata()
-        assert result is None
-
-    def test_header_methods_aliases(self):
-        """Test set_headers() and get_headers() aliases."""
-        # Mock the base context methods
-        self.mock_base_ctx.set_metadata = Mock()
-        self.mock_base_ctx.get_metadata = Mock(return_value={"header": "value"})
-
-        # Test set_headers (should call set_metadata)
-        headers = {"content-type": "application/json"}
-        self.ctx.set_headers(headers)
-        self.mock_base_ctx.set_metadata.assert_called_once_with(headers)
-
-        # Test get_headers (should call get_metadata)
-        result = self.ctx.get_headers()
-        assert result == {"header": "value"}
-        self.mock_base_ctx.get_metadata.assert_called_once()
 
     def test_debug_mode_enabled(self):
         """Test debug mode functionality."""
@@ -377,7 +302,7 @@ class TestAsyncWorkflowContext:
 
             # Perform some operations
             debug_ctx.call_activity("test_activity", input="test")
-            debug_ctx.sleep(5.0)
+            debug_ctx.create_timer(5.0)
             debug_ctx.wait_for_external_event("test_event")
 
             # Should have logged operations

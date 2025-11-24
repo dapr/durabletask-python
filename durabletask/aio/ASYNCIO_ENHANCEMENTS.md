@@ -63,18 +63,14 @@ with TaskHubGrpcWorker() as worker:
 
 ### 2. **Non-Determinism Detection**
 - Automatic detection of non-deterministic function calls
-- Three modes: `"off"` (default), `"best_effort"` (warnings), `"strict"` (errors)
+- Three modes: `"best_effort"` (default), `"strict"` (errors), `"off"` (no patching)
 - Comprehensive coverage of problematic functions
 - Helpful suggestions for deterministic alternatives
 
 ### 3. **Enhanced Concurrency Primitives**
-- `when_any_with_result()` - Returns (index, result) tuple
+- `when_all()` - Waits for all tasks to complete and returns list of results in order
+- `when_any()` - Returns (index, result) tuple indicating which task completed first
 - `with_timeout()` - Add timeout to any operation
-- `gather(*awaitables, return_exceptions=False)` - Compose awaitables:
-  - Preserves input order; returns list of results
-  - `return_exceptions=True` captures exceptions as values
-  - Empty gather resolves immediately to `[]`
-  - Safe to await the same gather result multiple times (cached)
 
 ### 4. **Async Context Management**
 - Full async context manager support (`async with ctx:`)
@@ -125,25 +121,32 @@ Note: The `sandbox_mode` parameter accepts both `SandboxMode` enum values and st
 Control non-determinism detection with the `sandbox_mode` parameter:
 
 ```python
-# Production: Zero overhead (default)
-worker.add_orchestrator(workflow, sandbox_mode="off")
+# Default: Patches asyncio functions for determinism, optional warnings
+worker.add_orchestrator(workflow)  # Uses "best_effort" by default
 
-# Development: Warnings for non-deterministic calls
+# Development: Same as default, warnings when debug mode enabled
 worker.add_orchestrator(workflow, sandbox_mode=SandboxMode.BEST_EFFORT)
 
 # Testing: Errors for non-deterministic calls
 worker.add_orchestrator(workflow, sandbox_mode=SandboxMode.STRICT)
+
+# No patching: Use only if all code uses ctx.* methods explicitly
+worker.add_orchestrator(workflow, sandbox_mode="off")
 ```
 
-Why enable detection (briefly):
-- Catch accidental non-determinism in development (BEST_EFFORT) before it ships.
-- Keep production fast with zero overhead (OFF).
-- Enforce determinism in CI (STRICT) to prevent regressions.
+Why "best_effort" is the default:
+- Makes standard asyncio patterns work correctly (asyncio.sleep, asyncio.gather, etc.)
+- Patches random/time/uuid to be deterministic automatically
+- Optional warnings only when debug mode is enabled (low overhead)
+- Provides "pit of success" for async workflow authoring
 
 ### Performance Impact
-- `"off"`: Zero overhead (recommended for production)
-- `"best_effort"/"strict"`: ~100-200% overhead due to Python tracing
+- `"best_effort"` (default): Minimal overhead from function patching. Tracing overhead present but uses lightweight noop tracer unless debug mode is enabled.
+- `"strict"`: ~100-200% overhead due to full Python tracing for detection
+- `"off"`: Zero overhead (no patching, no tracing)
 - Global disable: Set `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` environment variable
+
+Note: Function patching overhead is minimal (single-digit percentage). Tracing overhead (when enabled) is more significant due to Python's sys.settrace() mechanism.
 
 ## Environment Variables
 
@@ -151,26 +154,6 @@ Why enable detection (briefly):
 - `DAPR_WF_DISABLE_DETERMINISTIC_DETECTION=true` - Globally disable non-determinism detection
 
 ## Developer Mode
-## Workflow Metadata and Headers (Async Only)
-
-Purpose:
-- Carry lightweight key/value context (e.g., tracing IDs, tenant, app info) across workflow steps.
-- Enable routing and observability without embedding data into workflow inputs/outputs.
-
-API:
-```python
-md_before = ctx.get_metadata()  # Optional[Dict[str, str]]
-ctx.set_metadata({"tenant": "acme", "x-trace": trace_id})
-
-# Header aliases (same data for users familiar with other SDKs)
-ctx.set_headers({"region": "us-east"})
-headers = ctx.get_headers()
-```
-
-Notes:
-- In python-sdk, metadata/headers are available for both async and generator orchestrators; this repo currently implements the asyncio path.
-- Metadata is intended for small strings; avoid large payloads.
-- Sidecar integrations may forward metadata as gRPC headers to activities and sub-orchestrations.
 
 Set `DAPR_WF_DEBUG=true` during development to enable:
 - Non-determinism warnings for problematic function calls
@@ -206,14 +189,8 @@ async def workflow_with_timeout(ctx: AsyncWorkflowContext, input_data) -> str:
     return result
 ```
 
-### Enhanced when_any
-Note: `when_any` still exists. `when_any_with_result` is an addition for cases where you also want the index of the first completed.
+### when_any with index and result
 
-```python
-# Both forms are supported
-winner_value = await ctx.when_any(tasks)
-winner_index, winner_value = await ctx.when_any_with_result(tasks)
-```
 ```python
 async def competitive_workflow(ctx, input_data):
     tasks = [
@@ -222,8 +199,8 @@ async def competitive_workflow(ctx, input_data):
         ctx.call_activity("provider_c")
     ]
     
-    # Get both index and result of first completed
-    winner_index, result = await ctx.when_any_with_result(tasks)
+    # when_any returns (index, result) tuple
+    winner_index, result = await ctx.when_any(tasks)
     return f"Provider {winner_index} won with: {result}"
 ```
 
@@ -258,9 +235,9 @@ async def workflow_with_cleanup(ctx, input_data):
    - `ctx.random()` instead of `random`
    - `ctx.uuid4()` instead of `uuid.uuid4()`
 
-2. **Enable detection during development**:
+2. **Use strict mode in testing**:
    ```python
-   sandbox_mode = "best_effort" if os.getenv("ENV") == "dev" else "off"
+   sandbox_mode = "strict" if os.getenv("CI") else "best_effort"
    ```
 
 3. **Add timeouts to external operations**:

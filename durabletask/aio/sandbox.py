@@ -48,9 +48,13 @@ class SandboxMode(str, Enum):
     BEST_EFFORT = "best_effort"
     STRICT = "strict"
 
-
-def _as_mode_str(mode: Union[str, SandboxMode]) -> str:
-    return mode.value if isinstance(mode, SandboxMode) else mode
+    @classmethod
+    def from_string(cls, mode: str) -> SandboxMode:
+        if mode not in cls.__members__.values():
+            raise ValueError(
+                f"Invalid sandbox mode: {mode}. Must be one of: {cls.__members__.values()}."
+            )
+        return cls(mode)
 
 
 class _NonDeterminismDetector:
@@ -58,7 +62,7 @@ class _NonDeterminismDetector:
 
     def __init__(self, async_ctx: Any, mode: Union[str, SandboxMode]):
         self.async_ctx = async_ctx
-        self.mode = _as_mode_str(mode)
+        self.mode = SandboxMode.from_string(mode)
         self.detected_calls: Set[str] = set()
         self.original_trace_func: Optional[Callable[[FrameType, str, Any], Any]] = None
         self._restore_trace_func: Optional[Callable[[FrameType, str, Any], Any]] = None
@@ -285,12 +289,12 @@ class _Sandbox(ContextDecorator):
 
     def __init__(self, async_ctx: Any, mode: Union[str, SandboxMode]):
         self.async_ctx = async_ctx
-        self.mode = _as_mode_str(mode)
+        self.mode = SandboxMode.from_string(mode)
         self.originals: Dict[str, Any] = {}
         self.detector: Optional[_NonDeterminismDetector] = None
 
     def __enter__(self) -> "_Sandbox":
-        if self.mode == "off":
+        if self.mode == SandboxMode.OFF:
             return self
 
         # Check for global disable
@@ -323,7 +327,7 @@ class _Sandbox(ContextDecorator):
         if self.detector:
             self.detector.__exit__(exc_type, exc_val, exc_tb)
 
-        if self.mode != "off" and self.originals:
+        if self.mode != SandboxMode.OFF and self.originals:
             self._restore_originals()
 
         # Remove exposed references from the async context
@@ -360,7 +364,7 @@ class _Sandbox(ContextDecorator):
         }
 
         # Add strict mode blocks for potentially dangerous operations
-        if self.mode == "strict":
+        if self.mode == SandboxMode.STRICT:
             import builtins
             import os as _os
             import secrets as _secrets
@@ -617,7 +621,7 @@ class _Sandbox(ContextDecorator):
 
             _asyncio.gather = cast(Any, _patched_gather_wrapper_factory())
 
-        if self.mode == "strict" and hasattr(_asyncio, "create_task"):
+        if self.mode == SandboxMode.STRICT and hasattr(_asyncio, "create_task"):
 
             def _blocked_create_task(*args: Any, **kwargs: Any) -> None:
                 # If a coroutine object was already created by caller (e.g., create_task(dummy_coro())), close it
@@ -654,7 +658,7 @@ class _Sandbox(ContextDecorator):
         # Users should use ctx.now() instead of datetime.now() in workflows
 
         # Apply strict mode blocks
-        if self.mode == "strict":
+        if self.mode == SandboxMode.STRICT:
             import builtins
             import os as _os
             import secrets as _secrets
@@ -713,7 +717,7 @@ class _Sandbox(ContextDecorator):
         # This is a limitation of the current sandboxing approach
 
         # Restore strict mode blocks
-        if self.mode == "strict":
+        if self.mode == SandboxMode.STRICT:
             import builtins
             import os as _os
             import secrets as _secrets
@@ -743,35 +747,10 @@ def _sandbox_scope(async_ctx: Any, mode: Union[str, SandboxMode]) -> Any:
         ValueError: If mode is invalid
         SandboxViolationError: If non-deterministic operations are detected in strict mode
     """
-    mode_str = _as_mode_str(mode)
-    valid_modes = ("off", "best_effort", "strict")
-    if mode_str not in valid_modes:
-        raise ValueError(f"Invalid sandbox mode '{mode_str}'. Must be one of {valid_modes}")
-
+    mode = SandboxMode.from_string(mode)
     # Check for global disable (captured at module load to avoid non-determinism detection)
-    if mode_str != "off" and _DISABLE_DETECTION:
-        mode_str = "off"
+    if mode != SandboxMode.OFF and _DISABLE_DETECTION:
+        mode = SandboxMode.OFF
 
-    with _Sandbox(async_ctx, mode_str):
-        yield
-
-
-@contextlib.contextmanager
-def _sandbox_off(async_ctx: Any) -> Any:
-    """Convenience alias for sandbox scope in OFF mode (no detection/patching)."""
-    with _sandbox_scope(async_ctx, SandboxMode.OFF):
-        yield
-
-
-@contextlib.contextmanager
-def _sandbox_best_effort(async_ctx: Any) -> Any:
-    """Convenience alias for sandbox scope in BEST_EFFORT mode (warnings + patches)."""
-    with _sandbox_scope(async_ctx, SandboxMode.BEST_EFFORT):
-        yield
-
-
-@contextlib.contextmanager
-def _sandbox_strict(async_ctx: Any) -> Any:
-    """Convenience alias for sandbox scope in STRICT mode (errors + patches)."""
-    with _sandbox_scope(async_ctx, SandboxMode.STRICT):
+    with _Sandbox(async_ctx, mode):
         yield

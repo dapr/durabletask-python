@@ -320,8 +320,8 @@ class TestNonDeterminismIntegration:
             assert r0a == [] and r0b == []
 
             # All workflow awaitables (sleep -> WhenAll path)
-            a1 = async_ctx.sleep(0)
-            a2 = async_ctx.sleep(0)
+            a1 = async_ctx.create_timer(0)
+            a2 = async_ctx.create_timer(0)
             g1 = asyncio.gather(a1, a2)
             # Do not await g1: constructing it covers the all-workflow branch without
             # requiring a real orchestrator; ensure it is awaitable (one-shot wrapper)

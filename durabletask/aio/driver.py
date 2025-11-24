@@ -56,7 +56,7 @@ class CoroutineOrchestratorRunner:
         self,
         async_orchestrator: Callable[..., Awaitable[Any]],
         *,
-        sandbox_mode: str = "off",
+        sandbox_mode: str = "best_effort",
         workflow_name: Optional[str] = None,
     ):
         """
@@ -64,7 +64,7 @@ class CoroutineOrchestratorRunner:
 
         Args:
             async_orchestrator: The async workflow function to wrap
-            sandbox_mode: Sandbox mode ('off', 'best_effort', 'strict')
+            sandbox_mode: Sandbox mode ('off', 'best_effort', 'strict'). Default: 'best_effort'
             workflow_name: Optional workflow name for error reporting
         """
         self._async_orchestrator = async_orchestrator
@@ -169,6 +169,8 @@ class CoroutineOrchestratorRunner:
             except StopIteration as stop:
                 return stop.value
             except Exception as e:
+                # Close the coroutine to avoid "never awaited" warning
+                coro.close()
                 # Re-raise NonRetryableError directly to preserve its type for the runtime
                 if isinstance(e, task.NonRetryableError):
                     raise
@@ -211,6 +213,8 @@ class CoroutineOrchestratorRunner:
                     except StopIteration as stop:
                         return stop.value
                     except Exception as e:
+                        # Close the coroutine to avoid "never awaited" warning
+                        coro.close()
                         # Check if this is a TaskFailedError wrapping a NonRetryableError
                         if isinstance(e, task.TaskFailedError):
                             details = e.details
@@ -252,6 +256,8 @@ class CoroutineOrchestratorRunner:
                         except StopIteration as stop:
                             return stop.value
                         except Exception as workflow_exc:
+                            # Close the coroutine to avoid "never awaited" warning
+                            coro.close()
                             # Check if this is a TaskFailedError wrapping a NonRetryableError
                             if isinstance(workflow_exc, task.TaskFailedError):
                                 details = workflow_exc.details
@@ -277,6 +283,8 @@ class CoroutineOrchestratorRunner:
                         except StopIteration as stop:
                             return stop.value
                         except Exception as workflow_exc:
+                            # Close the coroutine to avoid "never awaited" warning
+                            coro.close()
                             # Check if this is a TaskFailedError wrapping a NonRetryableError
                             if isinstance(workflow_exc, task.TaskFailedError):
                                 details = workflow_exc.details
