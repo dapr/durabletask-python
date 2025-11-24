@@ -4,7 +4,7 @@ This document describes the enhanced async workflow capabilities added to this f
 
 ## Overview
 
-This fork extends the original durabletask-python SDK with comprehensive async workflow enhancements, providing a production-ready async authoring experience with advanced debugging, error handling, and determinism enforcement.
+The durabletask-python SDK includes comprehensive async workflow enhancements, providing a production-ready async authoring experience with advanced debugging, error handling, and determinism enforcement. This works seamlessly with the existing python workflow authoring experience.
 
 ## Quick Start
 
