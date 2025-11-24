@@ -337,15 +337,6 @@ class AsyncWorkflowContext(DeterministicContextMixin):
 
         self._cleanup_tasks.clear()
 
-    def add_cleanup(self, cleanup_fn: Callable[[], Any]) -> None:
-        """
-        Add a cleanup function to be called when the context exits.
-
-        Args:
-            cleanup_fn: Function to call during cleanup
-        """
-        self._cleanup_tasks.append(cleanup_fn)
-
     # Debug and monitoring
     def _log_operation(self, operation: str, details: Dict[str, Any]) -> None:
         """Log workflow operation for debugging."""
@@ -361,7 +352,7 @@ class AsyncWorkflowContext(DeterministicContextMixin):
             self._operation_history.append(entry)
             print(f"[WORKFLOW DEBUG] {operation}: {details}")
 
-    def get_debug_info(self) -> Dict[str, Any]:
+    def _get_info_snapshot(self) -> Dict[str, Any]:
         """
         Get debug information about the workflow execution.
 

@@ -316,76 +316,13 @@ class TestAsyncWorkflowContext:
 
     def test_get_debug_info_method(self):
         """Test get_debug_info() method."""
-        debug_info = self.ctx.get_debug_info()
+        debug_info = self.ctx._get_info_snapshot()
 
         assert isinstance(debug_info, dict)
         assert debug_info["instance_id"] == "test-instance-123"
         assert debug_info["is_replaying"] == False
         assert "operation_history" in debug_info
         assert "cleanup_tasks_count" in debug_info
-
-    def test_add_cleanup_method(self):
-        """Test add_cleanup() method."""
-        cleanup_task = Mock()
-
-        self.ctx.add_cleanup(cleanup_task)
-
-        assert cleanup_task in self.ctx._cleanup_tasks
-
-    def test_async_context_manager(self):
-        """Test async context manager functionality."""
-        cleanup_task1 = Mock()
-        cleanup_task2 = Mock()
-
-        async def test_context_manager():
-            async with self.ctx:
-                self.ctx.add_cleanup(cleanup_task1)
-                self.ctx.add_cleanup(cleanup_task2)
-
-        # Run the async context manager
-        import asyncio
-
-        asyncio.run(test_context_manager())
-
-        # Cleanup tasks should have been called in reverse order
-        cleanup_task2.assert_called_once()
-        cleanup_task1.assert_called_once()
-
-    def test_async_context_manager_with_async_cleanup(self):
-        """Test async context manager with async cleanup tasks."""
-        import asyncio
-
-        async_cleanup = Mock()
-
-        async def _noop():
-            return None
-
-        async_cleanup.return_value = _noop()
-
-        async def test_async_cleanup():
-            async with self.ctx:
-                self.ctx.add_cleanup(async_cleanup)
-
-        # Should handle async cleanup tasks
-        asyncio.run(test_async_cleanup())
-
-    def test_async_context_manager_cleanup_error_handling(self):
-        """Test that cleanup errors don't prevent other cleanups."""
-        failing_cleanup = Mock(side_effect=Exception("Cleanup failed"))
-        working_cleanup = Mock()
-
-        async def test_cleanup_errors():
-            async with self.ctx:
-                self.ctx.add_cleanup(failing_cleanup)
-                self.ctx.add_cleanup(working_cleanup)
-
-        # Should not raise error and should call both cleanups
-        import asyncio
-
-        asyncio.run(test_cleanup_errors())
-
-        failing_cleanup.assert_called_once()
-        working_cleanup.assert_called_once()
 
     def test_detection_disabled_property(self):
         """Test _detection_disabled property."""

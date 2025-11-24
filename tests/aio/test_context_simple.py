@@ -15,7 +15,6 @@ Simplified tests for AsyncWorkflowContext in durabletask.aio.
 These tests focus on the actual implementation rather than expected features.
 """
 
-import asyncio
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -261,34 +260,9 @@ class TestAsyncWorkflowContextBasic:
         # Should not raise error even if base context doesn't support it
         self.ctx.continue_as_new(new_input)
 
-    def test_add_cleanup_method(self):
-        """Test add_cleanup() method."""
-        cleanup_task = Mock()
-
-        self.ctx.add_cleanup(cleanup_task)
-
-        assert cleanup_task in self.ctx._cleanup_tasks
-
-    def test_async_context_manager(self):
-        """Test async context manager functionality."""
-        cleanup_task1 = Mock()
-        cleanup_task2 = Mock()
-
-        async def test_context_manager():
-            async with self.ctx:
-                self.ctx.add_cleanup(cleanup_task1)
-                self.ctx.add_cleanup(cleanup_task2)
-
-        # Run the async context manager
-        asyncio.run(test_context_manager())
-
-        # Cleanup tasks should have been called in reverse order
-        cleanup_task2.assert_called_once()
-        cleanup_task1.assert_called_once()
-
     def test_get_debug_info_method(self):
         """Test get_debug_info() method."""
-        debug_info = self.ctx.get_debug_info()
+        debug_info = self.ctx._get_info_snapshot()
 
         assert isinstance(debug_info, dict)
         assert debug_info["instance_id"] == "test-instance-123"

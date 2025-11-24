@@ -94,33 +94,11 @@ class TestAsyncWorkflowContext:
             ctx = AsyncWorkflowContext(self.mock_base_ctx)
             ctx._log_operation("test_op", {"param": "value"})
 
-            debug_info = ctx.get_debug_info()
+            debug_info = ctx._get_info_snapshot()
 
             assert debug_info["instance_id"] == "test-instance-123"
             assert len(debug_info["operation_history"]) == 1
             assert debug_info["operation_history"][0]["type"] == "test_op"
-
-    def test_cleanup_registry(self):
-        cleanup_called = []
-
-        def cleanup_fn():
-            cleanup_called.append("sync")
-
-        async def async_cleanup_fn():
-            cleanup_called.append("async")
-
-        self.ctx.add_cleanup(cleanup_fn)
-        self.ctx.add_cleanup(async_cleanup_fn)
-
-        # Test cleanup execution
-        async def test_cleanup():
-            async with self.ctx:
-                pass
-
-        asyncio.run(test_cleanup())
-
-        # Cleanup should be called in reverse order
-        assert cleanup_called == ["async", "sync"]
 
     def test_activity_logging(self):
         with patch.dict(os.environ, {"DAPR_WF_DEBUG": "true"}):
@@ -274,8 +252,6 @@ class TestEnhancedSandboxing:
             pass
 
     def test_asyncio_sleep_patching(self):
-        import asyncio
-
         original_sleep = asyncio.sleep
 
         with _sandbox_scope(self.async_ctx, "best_effort"):

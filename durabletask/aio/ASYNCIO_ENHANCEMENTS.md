@@ -205,26 +205,15 @@ async def competitive_workflow(ctx, input_data):
 ```
 
 ### Error Handling with Context
+
 ```python
 async def robust_workflow(ctx, input_data):
     try:
         return await ctx.call_activity("risky_activity")
     except Exception as e:
         # Enhanced error will include workflow context
-        debug_info = ctx.get_debug_info()
+        debug_info = ctx._get_info_snapshot()
         return {"error": str(e), "debug": debug_info}
-```
-
-### Cleanup Tasks
-```python
-async def workflow_with_cleanup(ctx, input_data):
-    async with ctx:  # Automatic cleanup
-        # Register cleanup tasks
-        ctx.add_cleanup(lambda: print("Workflow completed"))
-        
-        result = await ctx.call_activity("main_work")
-        return result
-    # Cleanup tasks run automatically here
 ```
 
 ## Best Practices
@@ -245,12 +234,7 @@ async def workflow_with_cleanup(ctx, input_data):
    result = await ctx.with_timeout(ctx.call_activity("external_api"), 30.0)
    ```
 
-4. **Use cleanup tasks for resource management**:
-   ```python
-   ctx.add_cleanup(lambda: cleanup_resources())
-   ```
-
-5. **Enable debug mode during development**:
+4. **Enable debug mode during development**:
    ```bash
    export DAPR_WF_DEBUG=true
    ```
