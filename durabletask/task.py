@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Any, Callable, Generator, Generic, Optional, TypeVar, Union
+from typing import Any, Awaitable, Callable, Generator, Generic, Optional, TypeVar, Union
 
 import durabletask.internal.helpers as pbh
 import durabletask.internal.orchestrator_service_pb2 as pb
@@ -499,7 +499,10 @@ class ActivityContext:
 Orchestrator = Callable[[OrchestrationContext, TInput], Union[Generator[Task, Any, Any], TOutput]]
 
 # Activities are simple functions that can be scheduled by orchestrators
-Activity = Callable[[ActivityContext, TInput], TOutput]
+Activity = Union[
+    Callable[[ActivityContext, TInput], TOutput],
+    Callable[[ActivityContext, TInput], Awaitable[TOutput]],
+]
 
 
 class RetryPolicy:
