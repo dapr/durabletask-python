@@ -111,4 +111,6 @@ def test_execute_activity_grpc_error_benign():
     mock_req.input.value = '""'
 
     # Should not raise exception (benign error)
-    w._execute_activity(mock_req, mock_stub, "token")
+    import asyncio
+
+    asyncio.run(w._execute_activity(mock_req, mock_stub, "token"))

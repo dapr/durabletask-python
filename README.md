@@ -138,6 +138,35 @@ Orchestrations are implemented using ordinary Python functions that take an `Orc
 
 Activities are implemented using ordinary Python functions that take an `ActivityContext` as their first parameter. Activity functions are scheduled by orchestrations and have at-least-once execution guarantees, meaning that they will be executed at least once but may be executed multiple times in the event of a transient failure. Activity functions are where the real "work" of any orchestration is done.
 
+#### Async Activities
+
+Activities can be either synchronous or asynchronous functions. Async activities are useful for I/O-bound operations like HTTP requests, database queries, or file operations:
+
+```python
+from durabletask.task import ActivityContext
+
+# Synchronous activity
+def sync_activity(ctx: ActivityContext, data: str) -> str:
+    return data.upper()
+
+# Asynchronous activity
+async def async_activity(ctx: ActivityContext, data: str) -> str:
+    # Perform async I/O operations
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.example.com/{data}") as response:
+            result = await response.json()
+    return result
+```
+
+Both sync and async activities are registered the same way:
+
+```python
+worker.add_activity(sync_activity)
+worker.add_activity(async_activity)
+```
+
+Orchestrators call them identically regardless of whether they're sync or async - the SDK handles the execution automatically.
+
 ### Durable timers
 
 Orchestrations can schedule durable timers using the `create_timer` API. These timers are durable, meaning that they will survive orchestrator restarts and will fire even if the orchestrator is not actively in memory. Durable timers can be of any duration, from milliseconds to months.

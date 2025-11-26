@@ -15,6 +15,7 @@ Simplified tests for AsyncWorkflowContext in durabletask.aio.
 These tests focus on the actual implementation rather than expected features.
 """
 
+import asyncio
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -308,3 +309,64 @@ class TestAsyncWorkflowContextBasic:
         repr_str = repr(self.ctx)
         assert "AsyncWorkflowContext" in repr_str
         assert "test-instance-123" in repr_str
+
+
+class TestAsyncActivities:
+    """Test async activities called from AsyncWorkflowContext."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mock_base_ctx = Mock(spec=dt_task.OrchestrationContext)
+        self.mock_base_ctx.instance_id = "test-instance-123"
+        self.mock_base_ctx.current_utc_datetime = datetime(2023, 1, 1, 12, 0, 0)
+        self.mock_base_ctx.is_replaying = False
+        self.mock_base_ctx.is_suspended = False
+
+    def test_async_activity_call(self):
+        """Test AsyncWorkflowContext calling async activity"""
+
+        async def async_activity(ctx: dt_task.ActivityContext, input_data: str):
+            await asyncio.sleep(0.001)
+            return input_data.upper()
+
+        ctx = AsyncWorkflowContext(self.mock_base_ctx)
+        awaitable = ctx.call_activity(async_activity, input="test")
+
+        assert isinstance(awaitable, ActivityAwaitable)
+        assert awaitable._activity_fn == async_activity
+        assert awaitable._input == "test"
+
+    def test_async_activity_with_when_all(self):
+        """Test when_all with async activities"""
+
+        async def async_activity(ctx: dt_task.ActivityContext, input_data: int):
+            await asyncio.sleep(0.001)
+            return input_data * 2
+
+        ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        # Create multiple async activity awaitables
+        awaitables = [ctx.call_activity(async_activity, input=i) for i in range(3)]
+        when_all = ctx.when_all(awaitables)
+
+        assert isinstance(when_all, WhenAllAwaitable)
+
+    def test_async_activity_with_when_any(self):
+        """Test when_any with async activities"""
+
+        async def async_activity_fast(ctx: dt_task.ActivityContext, _):
+            await asyncio.sleep(0.001)
+            return "fast"
+
+        async def async_activity_slow(ctx: dt_task.ActivityContext, _):
+            await asyncio.sleep(0.1)
+            return "slow"
+
+        ctx = AsyncWorkflowContext(self.mock_base_ctx)
+
+        # Create async activity awaitables
+        fast_awaitable = ctx.call_activity(async_activity_fast, input=None)
+        slow_awaitable = ctx.call_activity(async_activity_slow, input=None)
+        when_any = ctx.when_any([fast_awaitable, slow_awaitable])
+
+        assert isinstance(when_any, WhenAnyAwaitable)

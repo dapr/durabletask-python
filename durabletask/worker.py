@@ -692,7 +692,7 @@ class TaskHubGrpcWorker:
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
             )
 
-    def _execute_activity(
+    async def _execute_activity(
         self,
         req: pb.ActivityRequest,
         stub: stubs.TaskHubSidecarServiceStub,
@@ -701,7 +701,7 @@ class TaskHubGrpcWorker:
         instance_id = req.orchestrationInstance.instanceId
         try:
             executor = _ActivityExecutor(self._registry, self._logger)
-            result = executor.execute(instance_id, req.name, req.taskId, req.input.value)
+            result = await executor.execute(instance_id, req.name, req.taskId, req.input.value)
             res = pb.ActivityResponse(
                 instanceId=instance_id,
                 taskId=req.taskId,
@@ -1441,7 +1441,7 @@ class _ActivityExecutor:
         self._registry = registry
         self._logger = logger
 
-    def execute(
+    async def execute(
         self,
         orchestration_id: str,
         name: str,
@@ -1459,8 +1459,11 @@ class _ActivityExecutor:
         activity_input = shared.from_json(encoded_input) if encoded_input else None
         ctx = task.ActivityContext(orchestration_id, task_id)
 
-        # Execute the activity function
-        activity_output = fn(ctx, activity_input)
+        # Execute the activity function (sync or async)
+        if inspect.iscoroutinefunction(fn):
+            activity_output = await fn(ctx, activity_input)
+        else:
+            activity_output = fn(ctx, activity_input)
 
         encoded_output = shared.to_json(activity_output) if activity_output is not None else None
         chars = len(encoded_output) if encoded_output else 0

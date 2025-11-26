@@ -18,6 +18,142 @@ from durabletask.client import OrchestrationStatus
 pytestmark = [pytest.mark.e2e, pytest.mark.asyncio]
 
 
+async def test_orchestrator_with_async_activity():
+    """Tests sync generator orchestrator calling async activity"""
+
+    async def async_upper(ctx: task.ActivityContext, text: str) -> str:
+        # Async activity that converts text to uppercase
+        await asyncio.sleep(0.01)  # Simulate async I/O
+        return text.upper()
+
+    def orchestrator_with_async_activity(ctx: task.OrchestrationContext, input_text: str):
+        # Sync generator orchestrator calling async activity
+        result = yield ctx.call_activity(async_upper, input=input_text)
+        return result
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orchestrator_with_async_activity)
+        w.add_activity(async_upper)
+        w.start()
+
+        c = AsyncTaskHubGrpcClient()
+        input_text = "hello world"
+        id = await c.schedule_new_orchestration(orchestrator_with_async_activity, input=input_text)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
+
+    assert state is not None
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
+    assert state.serialized_output == json.dumps("HELLO WORLD")
+
+
+async def test_async_workflow_with_async_activity():
+    """Tests async workflow calling async activity"""
+    from durabletask.aio import AsyncWorkflowContext
+
+    async def async_process(ctx: task.ActivityContext, data: dict) -> dict:
+        # Async activity that processes data
+        await asyncio.sleep(0.01)  # Simulate async I/O
+        return {"processed": True, "data": data}
+
+    async def async_workflow_with_activity(ctx: AsyncWorkflowContext, input_data: dict):
+        # Async workflow calling async activity
+        result = await ctx.call_activity(async_process, input=input_data)
+        return result
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(async_workflow_with_activity)
+        w.add_activity(async_process)
+        w.start()
+
+        c = AsyncTaskHubGrpcClient()
+        input_data = {"key": "value"}
+        id = await c.schedule_new_orchestration(async_workflow_with_activity, input=input_data)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
+
+    assert state is not None
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
+    output = json.loads(state.serialized_output)
+    assert output["processed"] is True
+    assert output["data"] == input_data
+
+
+async def test_async_activity_with_retry_policy():
+    """Tests retry policy with async activity failures"""
+
+    attempt_count = {"value": 0}
+
+    async def async_flaky_activity(ctx: task.ActivityContext, _) -> str:
+        # Async activity that fails first two attempts
+        attempt_count["value"] += 1
+        await asyncio.sleep(0.01)
+        if attempt_count["value"] < 3:
+            raise RuntimeError(f"Attempt {attempt_count['value']} failed")
+        return "success"
+
+    def orchestrator_with_retry(ctx: task.OrchestrationContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(milliseconds=100),
+            max_number_of_attempts=5,
+        )
+        result = yield ctx.call_activity(async_flaky_activity, retry_policy=retry_policy)
+        return result
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orchestrator_with_retry)
+        w.add_activity(async_flaky_activity)
+        w.start()
+
+        c = AsyncTaskHubGrpcClient()
+        id = await c.schedule_new_orchestration(orchestrator_with_retry)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
+
+    assert state is not None
+    assert state.runtime_status == OrchestrationStatus.COMPLETED
+    assert state.serialized_output == json.dumps("success")
+    assert attempt_count["value"] == 3
+
+
+async def test_async_activity_non_retryable_error():
+    """Tests async activity with NonRetryableError"""
+
+    attempt_count = {"value": 0}
+
+    async def async_failing_activity(ctx: task.ActivityContext, _) -> str:
+        # Async activity that raises NonRetryableError
+        attempt_count["value"] += 1
+        await asyncio.sleep(0.01)
+        raise task.NonRetryableError("This error should not be retried")
+
+    def orchestrator_with_non_retryable(ctx: task.OrchestrationContext, _):
+        retry_policy = task.RetryPolicy(
+            first_retry_interval=timedelta(milliseconds=100),
+            max_number_of_attempts=5,
+        )
+        result = yield ctx.call_activity(async_failing_activity, retry_policy=retry_policy)
+        return result
+
+    with worker.TaskHubGrpcWorker() as w:
+        w.add_orchestrator(orchestrator_with_non_retryable)
+        w.add_activity(async_failing_activity)
+        w.start()
+
+        c = AsyncTaskHubGrpcClient()
+        id = await c.schedule_new_orchestration(orchestrator_with_non_retryable)
+        state = await c.wait_for_orchestration_completion(id, timeout=30)
+        await c.aclose()
+
+    assert state is not None
+    assert state.runtime_status == OrchestrationStatus.FAILED
+    assert state.failure_details is not None
+    assert state.failure_details.error_type == "TaskFailedError"
+    assert "should not be retried" in state.failure_details.message
+    # Most importantly: verify the activity only ran once (no retries despite retry_policy)
+    assert attempt_count["value"] == 1
+
+
 async def test_empty_orchestration():
     invoked = False
 

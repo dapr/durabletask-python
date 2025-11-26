@@ -292,7 +292,7 @@ Adding sandbox coverage:
 
 ## Interop Checklist (Async ↔ Generator)
 
-- Activities: identical behavior; only authoring differs (`yield` vs `await`).
+- Activities: identical behavior; only authoring differs (`yield` vs `await`). Activities themselves can be either sync or async functions and work identically from both generator and async orchestrators.
 - Timers: map to the same `createTimer` actions.
 - External events: same semantics for buffering and completion.
 - Sub‑orchestrators: same create/complete/fail events.
