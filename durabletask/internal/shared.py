@@ -97,12 +97,11 @@ def get_logger(
     log_handler: Optional[logging.Handler] = None,
     log_formatter: Optional[logging.Formatter] = None,
 ) -> logging.Logger:
-    logger = logging.Logger(f"durabletask-{name_suffix}")
+    logger = logging.getLogger(f"durabletask-{name_suffix}")
 
     # Add a default log handler if none is provided
     if log_handler is None:
         log_handler = logging.StreamHandler()
-        log_handler.setLevel(logging.INFO)
     logger.handlers.append(log_handler)
 
     # Set a default log formatter to our handler if none is provided
