@@ -49,9 +49,10 @@ jobs:
         tox -e py${{ matrix.python-version }}-e2e
     - name: Run examples
       run: |
+        pip install mechanical-markdown
         cd examples
         durabletask-go --port 4001 &
-        ./tests.sh
+        mm.py README.md
   publish:
     needs: build
     if: startswith(github.ref, 'refs/tags/v')
