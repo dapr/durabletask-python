@@ -460,11 +460,10 @@ class TaskHubGrpcWorker:
                             except Exception as stream_error:
                                 # Check if this is due to shutdown
                                 if self._shutdown.is_set():
-                                    self._logger.info(f"Stream reader: exception during shutdown: {type(stream_error).__name__}: {stream_error}")
-                                    break
+                                    self._logger.debug(f"Stream reader: exception during shutdown: {type(stream_error).__name__}: {stream_error}")
                                 # Other stream errors - put in queue for async loop to handle
                                 self._logger.warning(f"Stream reader: unexpected error: {stream_error}")
-                                break
+                                raise
                                 
                     except Exception as e:
                         if not self._shutdown.is_set():
@@ -499,9 +498,6 @@ class TaskHubGrpcWorker:
                         if work_item == SHUTDOWN_SENTINEL:
                             break
                         
-                        if self._shutdown.is_set():
-                            self._logger.debug("Shutdown detected, ignoring work item")
-                            break
                         if self._async_worker_manager._shutdown or loop.is_closed():
                             self._logger.debug("Async worker manager shut down or loop closed, exiting work item processing")
                             break
@@ -618,7 +614,6 @@ class TaskHubGrpcWorker:
                 self._logger.warning(f"Unexpected error: {ex}")
         invalidate_connection()
         self._logger.info("No longer listening for work items")
-        self._async_worker_manager.shutdown()
         
         # Cancel worker_task to ensure shutdown completes even if tasks are still running
         worker_task.cancel()
@@ -725,8 +720,9 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteOrchestratorTask(res)
-        except grpc.RpcError as rpc_error:  # type: ignore
-            self._handle_grpc_execution_error(rpc_error, "orchestrator")
+        except grpc.RpcError:
+        # except grpc.RpcError as rpc_error:  # type: ignore
+            raise # self._handle_grpc_execution_error(rpc_error, "orchestrator")
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
@@ -758,8 +754,10 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteActivityTask(res)
-        except grpc.RpcError as rpc_error:  # type: ignore
-            self._handle_grpc_execution_error(rpc_error, "activity")
+        # except grpc.RpcError as rpc_error:  # type: ignore
+            # self._handle_grpc_execution_error(rpc_error, "activity")
+        except grpc.RpcError:
+            raise
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
