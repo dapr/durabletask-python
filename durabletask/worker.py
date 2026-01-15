@@ -431,8 +431,6 @@ class TaskHubGrpcWorker:
                 def stream_reader():
                     try:
                         stream = self._response_stream
-                        if stream is None:
-                            return
 
                         # Use next() to allow shutdown check between items
                         # This matches Go's pattern: check ctx.Err() after each stream.Recv()
@@ -1611,8 +1609,6 @@ class _AsyncWorkerManager:
 
     def _ensure_queues_for_current_loop(self):
         """Ensure queues are bound to the current event loop."""
-        if self._shutdown:
-            return
         try:
             current_loop = asyncio.get_running_loop()
             if current_loop.is_closed():
@@ -1756,8 +1752,6 @@ class _AsyncWorkerManager:
             return result
 
     def submit_activity(self, func, *args, **kwargs):
-        if self._shutdown:
-            return
         work_item = (func, args, kwargs)
         self._ensure_queues_for_current_loop()
         if self.activity_queue is not None:
@@ -1767,8 +1761,6 @@ class _AsyncWorkerManager:
             self._pending_activity_work.append(work_item)
 
     def submit_orchestration(self, func, *args, **kwargs):
-        if self._shutdown:
-            return
         work_item = (func, args, kwargs)
         self._ensure_queues_for_current_loop()
         if self.orchestration_queue is not None:
