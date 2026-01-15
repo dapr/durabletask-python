@@ -32,8 +32,12 @@ def _log_all_threads(logger: logging.Logger, context: str = ""):
     active_threads = threading.enumerate()
     thread_info = []
     for t in active_threads:
-        thread_info.append(f"name='{t.name}', id={t.ident}, daemon={t.daemon}, alive={t.is_alive()}")
-    logger.debug(f"[THREAD_TRACE] {context} Active threads ({len(active_threads)}): {', '.join(thread_info)}")
+        thread_info.append(
+            f"name='{t.name}', id={t.ident}, daemon={t.daemon}, alive={t.is_alive()}"
+        )
+    logger.debug(
+        f"[THREAD_TRACE] {context} Active threads ({len(active_threads)}): {', '.join(thread_info)}"
+    )
 
 
 class ConcurrencyOptions:
@@ -429,13 +433,13 @@ class TaskHubGrpcWorker:
                         stream = self._response_stream
                         if stream is None:
                             return
-                        
+
                         # Use next() to allow shutdown check between items
                         # This matches Go's pattern: check ctx.Err() after each stream.Recv()
                         while True:
                             if self._shutdown.is_set():
                                 break
-                            
+
                             try:
                                 # NOTE: next(stream) blocks until gRPC returns the next work item or cancels the stream.
                                 # There is no way to interrupt this blocking call in Python gRPC. When shutdown is
@@ -451,20 +455,31 @@ class TaskHubGrpcWorker:
                                 break
                             except grpc.RpcError as rpc_error:
                                 # Check if this is due to shutdown/cancellation
-                                if self._shutdown.is_set() or rpc_error.code() == grpc.StatusCode.CANCELLED:
-                                    self._logger.debug(f"Stream reader: stream cancelled during shutdown (code={rpc_error.code()})")
+                                if (
+                                    self._shutdown.is_set()
+                                    or rpc_error.code() == grpc.StatusCode.CANCELLED
+                                ):
+                                    self._logger.debug(
+                                        f"Stream reader: stream cancelled during shutdown (code={rpc_error.code()})"
+                                    )
                                     break
                                 # Other RPC errors - put in queue for async loop to handle
-                                self._logger.warning(f"Stream reader: RPC error (code={rpc_error.code()}): {rpc_error}")
+                                self._logger.warning(
+                                    f"Stream reader: RPC error (code={rpc_error.code()}): {rpc_error}"
+                                )
                                 break
                             except Exception as stream_error:
                                 # Check if this is due to shutdown
                                 if self._shutdown.is_set():
-                                    self._logger.debug(f"Stream reader: exception during shutdown: {type(stream_error).__name__}: {stream_error}")
+                                    self._logger.debug(
+                                        f"Stream reader: exception during shutdown: {type(stream_error).__name__}: {stream_error}"
+                                    )
                                 # Other stream errors - put in queue for async loop to handle
-                                self._logger.warning(f"Stream reader: unexpected error: {stream_error}")
+                                self._logger.warning(
+                                    f"Stream reader: unexpected error: {stream_error}"
+                                )
                                 raise
-                                
+
                     except Exception as e:
                         if not self._shutdown.is_set():
                             work_item_queue.put(e)
@@ -472,7 +487,7 @@ class TaskHubGrpcWorker:
                         # signal that the stream reader is done (ie matching Go's context cancellation)
                         try:
                             work_item_queue.put(SHUTDOWN_SENTINEL)
-                        except Exception as e:
+                        except Exception:
                             # queue might be closed so ignore this
                             pass
 
@@ -482,24 +497,27 @@ class TaskHubGrpcWorker:
                 # Daemon threads exit immediately when the main program exits, which prevents
                 # cleanup of gRPC channel resources and OTel interceptors. Non-daemon threads
                 # block shutdown until they complete, ensuring all resources are properly closed.
-                current_reader_thread = threading.Thread(target=stream_reader, daemon=False, name="StreamReader")
+                current_reader_thread = threading.Thread(
+                    target=stream_reader, daemon=False, name="StreamReader"
+                )
                 current_reader_thread.start()
                 loop = asyncio.get_running_loop()
 
                 # NOTE: This is a blocking call that will wait for a work item to become available or the shutdown sentinel
                 while not self._shutdown.is_set():
                     try:
-                        
                         # Use timeout to allow shutdown check (mimicing Go's select with ctx.Done())
                         work_item = await loop.run_in_executor(
-                            None, 
-                            lambda: work_item_queue.get(timeout=0.1))
+                            None, lambda: work_item_queue.get(timeout=0.1)
+                        )
                         # Essentially check for ctx.Done() in Go
                         if work_item == SHUTDOWN_SENTINEL:
                             break
-                        
+
                         if self._async_worker_manager._shutdown or loop.is_closed():
-                            self._logger.debug("Async worker manager shut down or loop closed, exiting work item processing")
+                            self._logger.debug(
+                                "Async worker manager shut down or loop closed, exiting work item processing"
+                            )
                             break
                         if isinstance(work_item, Exception):
                             raise work_item
@@ -533,7 +551,7 @@ class TaskHubGrpcWorker:
                         invalidate_connection()
                         raise e
                 current_reader_thread.join(timeout=1)
-                
+
                 if self._shutdown.is_set():
                     self._logger.info(f"Disconnected from {self._host_address}")
                 else:
@@ -581,13 +599,17 @@ class TaskHubGrpcWorker:
                 # RuntimeError often indicates asyncio loop issues (e.g., "cannot schedule new futures after shutdown")
                 # Check shutdown state first
                 if self._shutdown.is_set():
-                    self._logger.debug(f"Shutdown detected during RuntimeError handling, exiting: {ex}")
+                    self._logger.debug(
+                        f"Shutdown detected during RuntimeError handling, exiting: {ex}"
+                    )
                     break
                 # Check if async worker manager is shut down or loop is closed
                 try:
                     loop = asyncio.get_running_loop()
                     if self._async_worker_manager._shutdown or loop.is_closed():
-                        self._logger.debug(f"Async worker manager shut down or loop closed, exiting: {ex}")
+                        self._logger.debug(
+                            f"Async worker manager shut down or loop closed, exiting: {ex}"
+                        )
                         break
                 except RuntimeError:
                     # No event loop running, treat as shutdown
@@ -598,13 +620,17 @@ class TaskHubGrpcWorker:
                 break
             except Exception as ex:
                 if self._shutdown.is_set():
-                    self._logger.debug(f"Shutdown detected during exception handling, exiting: {ex}")
+                    self._logger.debug(
+                        f"Shutdown detected during exception handling, exiting: {ex}"
+                    )
                     break
                 # Check if async worker manager is shut down or loop is closed
                 try:
                     loop = asyncio.get_running_loop()
                     if self._async_worker_manager._shutdown or loop.is_closed():
-                        self._logger.debug(f"Async worker manager shut down or loop closed, exiting: {ex}")
+                        self._logger.debug(
+                            f"Async worker manager shut down or loop closed, exiting: {ex}"
+                        )
                         break
                 except RuntimeError:
                     # No event loop running, treat as shutdown
@@ -614,7 +640,7 @@ class TaskHubGrpcWorker:
                 self._logger.warning(f"Unexpected error: {ex}")
         invalidate_connection()
         self._logger.info("No longer listening for work items")
-        
+
         # Cancel worker_task to ensure shutdown completes even if tasks are still running
         worker_task.cancel()
         try:
@@ -644,7 +670,7 @@ class TaskHubGrpcWorker:
                 self._logger.exception(f"Error closing gRPC channel: {e}")
             finally:
                 self._current_channel = None
-        
+
         if self._runLoop is not None:
             self._runLoop.join(timeout=self._stop_timeout)
             if self._runLoop.is_alive():
@@ -654,7 +680,7 @@ class TaskHubGrpcWorker:
                 )
             else:
                 self._logger.debug("Worker thread completed successfully")
-        
+
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")
         self._is_running = False
@@ -1683,7 +1709,7 @@ class _AsyncWorkerManager:
                     # Check for cancellation during timeout and exit while loop if shutting down
                     if self._shutdown:
                         break
-                    continue # otherwise wait for work item to become available and loop again
+                    continue  # otherwise wait for work item to become available and loop again
                 except asyncio.CancelledError:
                     # Propagate cancellation
                     raise
