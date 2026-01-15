@@ -659,6 +659,7 @@ class TaskHubGrpcWorker:
         self._logger.info("Worker shutdown completed")
         self._is_running = False
 
+    # TODO: This should be removed in the future as we do handle grpc errs
     def _handle_grpc_execution_error(self, rpc_error: grpc.RpcError, request_type: str):
         """Handle a gRPC execution error during shutdown or benign condition."""
         # During shutdown or if the instance was terminated, the channel may be close
@@ -720,9 +721,8 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteOrchestratorTask(res)
-        except grpc.RpcError:
-        # except grpc.RpcError as rpc_error:  # type: ignore
-            raise # self._handle_grpc_execution_error(rpc_error, "orchestrator")
+        except grpc.RpcError as rpc_error:  # type: ignore
+            self._handle_grpc_execution_error(rpc_error, "orchestrator")
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
@@ -754,10 +754,8 @@ class TaskHubGrpcWorker:
 
         try:
             stub.CompleteActivityTask(res)
-        # except grpc.RpcError as rpc_error:  # type: ignore
-            # self._handle_grpc_execution_error(rpc_error, "activity")
-        except grpc.RpcError:
-            raise
+        except grpc.RpcError as rpc_error:  # type: ignore
+            self._handle_grpc_execution_error(rpc_error, "activity")
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
