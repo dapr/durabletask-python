@@ -25,6 +25,8 @@ from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
 
+class VersionNotRegisteredException(Exception):
+    pass
 
 class ConcurrencyOptions:
     """Configuration options for controlling concurrency of different work item types and the thread pool size.
@@ -74,30 +76,58 @@ class ConcurrencyOptions:
 
 class _Registry:
     orchestrators: dict[str, task.Orchestrator]
+    versioned_orchestrators: dict[str, dict[str, task.Orchestrator]]
+    latest_versioned_orchestrators_version_name: dict[str, str]
     activities: dict[str, task.Activity]
 
     def __init__(self):
         self.orchestrators = {}
+        self.versioned_orchestrators = {}
+        self.latest_versioned_orchestrators_version_name = {}
         self.activities = {}
 
-    def add_orchestrator(self, fn: task.Orchestrator) -> str:
+    def add_orchestrator(self, fn: task.Orchestrator, version_name: Optional[str] = None, is_latest: bool = False) -> str:
         if fn is None:
             raise ValueError("An orchestrator function argument is required.")
 
         name = task.get_name(fn)
-        self.add_named_orchestrator(name, fn)
+        self.add_named_orchestrator(name, fn, version_name, is_latest)
         return name
 
-    def add_named_orchestrator(self, name: str, fn: task.Orchestrator) -> None:
+    def add_named_orchestrator(self, name: str, fn: task.Orchestrator, version_name: Optional[str] = None, is_latest: bool = False) -> None:
         if not name:
             raise ValueError("A non-empty orchestrator name is required.")
+
+        if version_name is None:
+            if name in self.orchestrators:
+                raise ValueError(f"A '{name}' orchestrator already exists.")
+            self.orchestrators[name] = fn
+        else:
+            if name not in self.versioned_orchestrators:
+                self.versioned_orchestrators[name] = {}
+            if version_name in self.versioned_orchestrators[name]:
+                raise ValueError(f"The version '{version_name}' of '{name}' orchestrator already exists.")
+            self.versioned_orchestrators[name][version_name] = fn
+            if is_latest:
+                self.latest_versioned_orchestrators_version_name[name] = version_name
+
+    def get_orchestrator(self, name: str, version_name: Optional[str] = None) -> Optional[tuple[task.Orchestrator, str]]:
         if name in self.orchestrators:
-            raise ValueError(f"A '{name}' orchestrator already exists.")
+            return self.orchestrators.get(name), None
 
-        self.orchestrators[name] = fn
+        if name in self.versioned_orchestrators:
+            if version_name:
+                version_to_use = version_name
+            elif name in self.latest_versioned_orchestrators_version_name:
+                version_to_use = self.latest_versioned_orchestrators_version_name[name]
+            else:
+                return None, None
 
-    def get_orchestrator(self, name: str) -> Optional[task.Orchestrator]:
-        return self.orchestrators.get(name)
+            if version_to_use not in self.versioned_orchestrators[name]:
+                raise VersionNotRegisteredException
+            return self.versioned_orchestrators[name].get(version_to_use), version_to_use
+
+        return None, None
 
     def add_activity(self, fn: task.Activity) -> str:
         if fn is None:
@@ -540,11 +570,22 @@ class TaskHubGrpcWorker:
         try:
             executor = _OrchestrationExecutor(self._registry, self._logger)
             result = executor.execute(req.instanceId, req.pastEvents, req.newEvents)
+
+            version = None
+            if result.version_name:
+                version = version or pb.OrchestrationVersion()
+                version.name = result.version_name
+            if result.patches:
+                version = version or pb.OrchestrationVersion()
+                version.patches.extend(result.patches)
+
+
             res = pb.OrchestratorResponse(
                 instanceId=req.instanceId,
                 actions=result.actions,
                 customStatus=ph.get_string_value(result.encoded_custom_status),
                 completionToken=completionToken,
+                version=version,
             )
         except Exception as ex:
             self._logger.exception(
@@ -629,6 +670,11 @@ class _RuntimeOrchestrationContext(
         self._new_input: Optional[Any] = None
         self._save_events = False
         self._encoded_custom_status: Optional[str] = None
+        self._orchestrator_started_version: Optional[pb.OrchestrationVersion] = None
+        self._version_name: Optional[str] = None
+        self._history_patches: dict[str, bool] = {}
+        self._applied_patches: dict[str, bool] = {}
+        self._encountered_patches: list[str] = []
 
     def run(self, generator: Generator[task.Task, Any, Any]):
         self._generator = generator
@@ -704,6 +750,14 @@ class _RuntimeOrchestrationContext(
             router=pb.TaskRouter(sourceAppID=self._app_id) if self._app_id else None,
         )
         self._pending_actions[action.id] = action
+
+
+    def set_version_not_registered(self):
+        self._pending_actions.clear()
+        self._completion_status = pb.ORCHESTRATION_STATUS_STALLED
+        action = ph.new_orchestrator_version_not_available_action(self.next_sequence_number())
+        self._pending_actions[action.id] = action
+
 
     def set_continued_as_new(self, new_input: Any, save_events: bool):
         if self._is_complete:
@@ -916,13 +970,38 @@ class _RuntimeOrchestrationContext(
         self.set_continued_as_new(new_input, save_events)
 
 
+    def is_patched(self, patch_name: str) -> bool:
+        is_patched = self._is_patched(patch_name)
+        if is_patched:
+            self._encountered_patches.append(patch_name)
+        return is_patched
+
+    def _is_patched(self, patch_name: str) -> bool:
+        if patch_name in self._applied_patches:
+            return self._applied_patches[patch_name]
+        if patch_name in self._history_patches:
+            self._applied_patches[patch_name] = True
+            return True
+
+        if self._is_replaying:
+            self._applied_patches[patch_name] = False
+            return False
+
+        self._applied_patches[patch_name] = True
+        return True
+
+
 class ExecutionResults:
     actions: list[pb.OrchestratorAction]
     encoded_custom_status: Optional[str]
+    version_name: Optional[str]
+    patches: Optional[list[str]]
 
-    def __init__(self, actions: list[pb.OrchestratorAction], encoded_custom_status: Optional[str]):
+    def __init__(self, actions: list[pb.OrchestratorAction], encoded_custom_status: Optional[str], version_name: Optional[str] = None, patches: Optional[list[str]] = None):
         self.actions = actions
         self.encoded_custom_status = encoded_custom_status
+        self.version_name = version_name
+        self.patches = patches
 
 
 class _OrchestrationExecutor:
@@ -965,6 +1044,8 @@ class _OrchestrationExecutor:
             for new_event in new_events:
                 self.process_event(ctx, new_event)
 
+        except VersionNotRegisteredException:
+            ctx.set_version_not_registered()
         except Exception as ex:
             # Unhandled exceptions fail the orchestration
             ctx.set_failed(ex)
@@ -989,7 +1070,12 @@ class _OrchestrationExecutor:
             self._logger.debug(
                 f"{instance_id}: Returning {len(actions)} action(s): {_get_action_summary(actions)}"
             )
-        return ExecutionResults(actions=actions, encoded_custom_status=ctx._encoded_custom_status)
+        return ExecutionResults(
+            actions=actions,
+            encoded_custom_status=ctx._encoded_custom_status,
+            version_name=getattr(ctx, '_version_name', None),
+            patches=ctx._encountered_patches
+        )
 
     def process_event(self, ctx: _RuntimeOrchestrationContext, event: pb.HistoryEvent) -> None:
         if self._is_suspended and _is_suspendable(event):
@@ -1001,18 +1087,31 @@ class _OrchestrationExecutor:
         try:
             if event.HasField("orchestratorStarted"):
                 ctx.current_utc_datetime = event.timestamp.ToDatetime()
+                ctx._orchestrator_started_version = event.orchestratorStarted.version
             elif event.HasField("executionStarted"):
                 if event.router.targetAppID:
                     ctx._app_id = event.router.targetAppID
                 else:
                     ctx._app_id = event.router.sourceAppID
 
+                if ctx._orchestrator_started_version and ctx._orchestrator_started_version.patches:
+                    ctx._history_patches = {patch: True for patch in ctx._orchestrator_started_version.patches}
+
+                version_name = None
+                if ctx._orchestrator_started_version and ctx._orchestrator_started_version.name:
+                    version_name = ctx._orchestrator_started_version.name
+
+
                 # TODO: Check if we already started the orchestration
-                fn = self._registry.get_orchestrator(event.executionStarted.name)
+                fn, version_used = self._registry.get_orchestrator(event.executionStarted.name, version_name=version_name)
+
                 if fn is None:
                     raise OrchestratorNotRegisteredError(
                         f"A '{event.executionStarted.name}' orchestrator was not registered."
                     )
+
+                if version_used is not None:
+                    ctx._version_name = version_used
 
                 # deserialize the input, if any
                 input = None
@@ -1280,6 +1379,9 @@ class _OrchestrationExecutor:
                     pb.ORCHESTRATION_STATUS_TERMINATED,
                     is_result_encoded=True,
                 )
+            elif event.HasField("executionStalled"):
+                # Nothing to do
+                pass
             else:
                 eventType = event.WhichOneof("eventType")
                 raise task.OrchestrationStateError(

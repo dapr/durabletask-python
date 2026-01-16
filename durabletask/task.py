@@ -189,6 +189,22 @@ class OrchestrationContext(ABC):
         """
         pass
 
+    @abstractmethod
+    def is_patched(self, patch_name: str) -> bool:
+        """Check if the given patch name can be applied to the orchestration.
+
+        Parameters
+        ----------
+        patch_name : str
+            The name of the patch to check.
+
+        Returns
+        -------
+        bool
+            True if the given patch name can be applied to the orchestration, False otherwise.
+        """
+        pass
+
 
 class FailureDetails:
     def __init__(self, message: str, error_type: str, stack_trace: Optional[str]):
