@@ -188,6 +188,15 @@ def new_complete_orchestration_action(
     )
 
 
+def new_orchestrator_version_not_available_action(
+    id: int,
+) -> pb.OrchestratorAction:
+    return pb.OrchestratorAction(
+        id=id,
+        orchestratorVersionNotAvailable=pb.OrchestratorVersionNotAvailableAction(),
+    )
+
+
 def new_create_timer_action(id: int, fire_at: datetime) -> pb.OrchestratorAction:
     timestamp = timestamp_pb2.Timestamp()
     timestamp.FromDatetime(fire_at)

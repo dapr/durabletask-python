@@ -170,6 +170,16 @@ class TaskHubSidecarServiceStub(object):
                 request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventRequest.SerializeToString,
                 response_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventResponse.FromString,
                 _registered_method=True)
+        self.ListInstanceIDs = channel.unary_unary(
+                '/TaskHubSidecarService/ListInstanceIDs',
+                request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsRequest.SerializeToString,
+                response_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsResponse.FromString,
+                _registered_method=True)
+        self.GetInstanceHistory = channel.unary_unary(
+                '/TaskHubSidecarService/GetInstanceHistory',
+                request_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryRequest.SerializeToString,
+                response_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryResponse.FromString,
+                _registered_method=True)
 
 
 class TaskHubSidecarServiceServicer(object):
@@ -360,6 +370,18 @@ class TaskHubSidecarServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListInstanceIDs(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetInstanceHistory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_TaskHubSidecarServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -497,6 +519,16 @@ def add_TaskHubSidecarServiceServicer_to_server(servicer, server):
                     servicer.RerunWorkflowFromEvent,
                     request_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventRequest.FromString,
                     response_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventResponse.SerializeToString,
+            ),
+            'ListInstanceIDs': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListInstanceIDs,
+                    request_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsRequest.FromString,
+                    response_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsResponse.SerializeToString,
+            ),
+            'GetInstanceHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetInstanceHistory,
+                    request_deserializer=durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryRequest.FromString,
+                    response_serializer=durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1228,6 +1260,60 @@ class TaskHubSidecarService(object):
             '/TaskHubSidecarService/RerunWorkflowFromEvent',
             durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventRequest.SerializeToString,
             durabletask_dot_internal_dot_orchestrator__service__pb2.RerunWorkflowFromEventResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListInstanceIDs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/TaskHubSidecarService/ListInstanceIDs',
+            durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsRequest.SerializeToString,
+            durabletask_dot_internal_dot_orchestrator__service__pb2.ListInstanceIDsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetInstanceHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/TaskHubSidecarService/GetInstanceHistory',
+            durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryRequest.SerializeToString,
+            durabletask_dot_internal_dot_orchestrator__service__pb2.GetInstanceHistoryResponse.FromString,
             options,
             channel_credentials,
             insecure,
