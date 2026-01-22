@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
@@ -25,6 +26,17 @@ from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
+
+# If `opentelemetry-sdk` is available, enable the tracer
+try:
+    from opentelemetry import trace
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+    otel_propagator = TraceContextTextMapPropagator()
+    otel_tracer = trace.get_tracer(__name__)
+except ImportError:
+    otel_tracer = None
+
 
 
 def _log_all_threads(logger: logging.Logger, context: str = ""):
@@ -759,31 +771,46 @@ class TaskHubGrpcWorker:
         completionToken,
     ):
         instance_id = req.orchestrationInstance.instanceId
-        try:
-            executor = _ActivityExecutor(self._registry, self._logger)
-            result = executor.execute(instance_id, req.name, req.taskId, req.input.value)
-            res = pb.ActivityResponse(
-                instanceId=instance_id,
-                taskId=req.taskId,
-                result=ph.get_string_value(result),
-                completionToken=completionToken,
-            )
-        except Exception as ex:
-            res = pb.ActivityResponse(
-                instanceId=instance_id,
-                taskId=req.taskId,
-                failureDetails=ph.new_failure_details(ex),
-                completionToken=completionToken,
-            )
 
-        try:
-            stub.CompleteActivityTask(res)
-        except grpc.RpcError as rpc_error:  # type: ignore
-            self._handle_grpc_execution_error(rpc_error, "activity")
-        except Exception as ex:
-            self._logger.exception(
-                f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
+        if otel_tracer is not None:
+            span_context = otel_tracer.start_as_current_span(
+                name=f'activity: {req.name}',
+                context=otel_propagator.extract(carrier={"traceparent": req.parentTraceContext.traceParent}),
+                attributes={
+                    "durabletask.task.instance_id": instance_id,
+                    "durabletask.task.id": req.taskId,
+                    "durabletask.activity.name": req.name,
+                }
             )
+        else:
+            span_context = contextlib.nullcontext()
+
+        with span_context:
+            try:
+                executor = _ActivityExecutor(self._registry, self._logger)
+                result = executor.execute(instance_id, req.name, req.taskId, req.input.value)
+                res = pb.ActivityResponse(
+                    instanceId=instance_id,
+                    taskId=req.taskId,
+                    result=ph.get_string_value(result),
+                    completionToken=completionToken,
+                )
+            except Exception as ex:
+                res = pb.ActivityResponse(
+                    instanceId=instance_id,
+                    taskId=req.taskId,
+                    failureDetails=ph.new_failure_details(ex),
+                    completionToken=completionToken,
+                )
+
+            try:
+                stub.CompleteActivityTask(res)
+            except grpc.RpcError as rpc_error:  # type: ignore
+                self._handle_grpc_execution_error(rpc_error, "activity")
+            except Exception as ex:
+                self._logger.exception(
+                    f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
+                )
 
 
 class _RuntimeOrchestrationContext(
