@@ -24,6 +24,13 @@ from durabletask.client import (
     new_orchestration_state,
 )
 
+# If `opentelemetry-instrumentation-grpc` is available, enable the gRPC client interceptor
+try:
+    from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+    GrpcInstrumentorClient().instrument()
+except ImportError:
+    pass
+
 
 class AsyncTaskHubGrpcClient:
     def __init__(

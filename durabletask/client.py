@@ -21,6 +21,12 @@ from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
 
+# If `opentelemetry-instrumentation-grpc` is available, enable the gRPC client interceptor
+try:
+    from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+    GrpcInstrumentorClient().instrument()
+except ImportError:
+    pass
 
 class OrchestrationStatus(Enum):
     """The status of an orchestration instance."""
