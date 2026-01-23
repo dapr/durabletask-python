@@ -670,7 +670,7 @@ class _RuntimeOrchestrationContext(
         self._new_input: Optional[Any] = None
         self._save_events = False
         self._encoded_custom_status: Optional[str] = None
-        self._orchestrator_started_version: Optional[pb.OrchestrationVersion] = None
+        self._orchestrator_version_name: Optional[str] = None
         self._version_name: Optional[str] = None
         self._history_patches: dict[str, bool] = {}
         self._applied_patches: dict[str, bool] = {}
@@ -1087,19 +1087,20 @@ class _OrchestrationExecutor:
         try:
             if event.HasField("orchestratorStarted"):
                 ctx.current_utc_datetime = event.timestamp.ToDatetime()
-                ctx._orchestrator_started_version = event.orchestratorStarted.version
+                if event.orchestratorStarted.version:
+                    if event.orchestratorStarted.version.name:
+                        ctx._orchestrator_version_name = event.orchestratorStarted.version.name
+                    for patch in event.orchestratorStarted.version.patches:
+                        ctx._history_patches[patch] = True
             elif event.HasField("executionStarted"):
                 if event.router.targetAppID:
                     ctx._app_id = event.router.targetAppID
                 else:
                     ctx._app_id = event.router.sourceAppID
 
-                if ctx._orchestrator_started_version and ctx._orchestrator_started_version.patches:
-                    ctx._history_patches = {patch: True for patch in ctx._orchestrator_started_version.patches}
-
                 version_name = None
-                if ctx._orchestrator_started_version and ctx._orchestrator_started_version.name:
-                    version_name = ctx._orchestrator_started_version.name
+                if ctx._orchestrator_version_name:
+                    version_name = ctx._orchestrator_version_name
 
 
                 # TODO: Check if we already started the orchestration
