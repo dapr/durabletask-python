@@ -282,7 +282,7 @@ class TaskHubGrpcWorker:
         self._channel_options = channel_options
         self._stop_timeout = stop_timeout
         self._current_channel: Optional[grpc.Channel] = None  # Store channel reference for cleanup
-
+        self._stream_ready = threading.Event()
         # Use provided concurrency options or create default ones
         self._concurrency_options = (
             concurrency_options if concurrency_options is not None else ConcurrencyOptions()
@@ -298,7 +298,7 @@ class TaskHubGrpcWorker:
         else:
             self._interceptors = None
 
-        self._async_worker_manager = _AsyncWorkerManager(self._concurrency_options)
+        self._async_worker_manager = _AsyncWorkerManager(self._concurrency_options, self._logger)
 
     @property
     def concurrency_options(self) -> ConcurrencyOptions:
@@ -323,6 +323,9 @@ class TaskHubGrpcWorker:
             raise RuntimeError("Activities cannot be added while the worker is running.")
         return self._registry.add_activity(fn)
 
+    def is_worker_ready(self) -> bool:
+        return self._stream_ready.is_set() and self._is_running
+        
     def start(self):
         """Starts the worker on a background thread and begins listening for work items."""
         if self._is_running:
@@ -336,6 +339,8 @@ class TaskHubGrpcWorker:
         self._logger.info(f"Starting gRPC worker that connects to {self._host_address}")
         self._runLoop = Thread(target=run_loop, name="WorkerRunLoop")
         self._runLoop.start()
+        if not self._stream_ready.wait(timeout=10):
+            raise RuntimeError("Failed to establish work item stream connection within 10 seconds")
         self._is_running = True
 
     # TODO: refactor this to be more readable and maintainable.
@@ -446,26 +451,31 @@ class TaskHubGrpcWorker:
                     maxConcurrentOrchestrationWorkItems=self._concurrency_options.maximum_concurrent_orchestration_work_items,
                     maxConcurrentActivityWorkItems=self._concurrency_options.maximum_concurrent_activity_work_items,
                 )
-                self._response_stream = stub.GetWorkItems(get_work_items_request)
-                self._logger.info(
-                    f"Successfully connected to {self._host_address}. Waiting for work items..."
-                )
+                try:
+                    self._response_stream = stub.GetWorkItems(get_work_items_request)
+                    self._logger.info(
+                        f"Successfully connected to {self._host_address}. Waiting for work items..."
+                    )
+                except Exception as e:
+                    raise
 
                 # Use a thread to read from the blocking gRPC stream and forward to asyncio
                 import queue
-
                 work_item_queue = queue.Queue()
                 SHUTDOWN_SENTINEL = None
 
                 # NOTE: This is equivalent to the Durabletask Go goroutine calling stream.Recv() in worker_grpc.go StartWorkItemListener()
                 def stream_reader():
                     try:
+                        if self._response_stream is None:
+                            return
                         stream = self._response_stream
 
                         # Use next() to allow shutdown check between items
                         # This matches Go's pattern: check ctx.Err() after each stream.Recv()
                         while True:
                             if self._shutdown.is_set():
+                                self._logger.debug("Stream reader: shutdown detected, exiting loop")
                                 break
 
                             try:
@@ -502,24 +512,31 @@ class TaskHubGrpcWorker:
                                     self._logger.debug(
                                         f"Stream reader: exception during shutdown: {type(stream_error).__name__}: {stream_error}"
                                     )
+                                    break
                                 # Other stream errors - put in queue for async loop to handle
-                                self._logger.warning(
-                                    f"Stream reader: unexpected error: {stream_error}"
+                                self._logger.error(
+                                    f"Stream reader: unexpected error: {type(stream_error).__name__}: {stream_error}",
+                                    exc_info=True
                                 )
                                 raise
 
                     except Exception as e:
+                        self._logger.exception(
+                            f"Stream reader: fatal exception in stream_reader: {type(e).__name__}: {e}",
+                            exc_info=True
+                        )
                         if not self._shutdown.is_set():
-                            work_item_queue.put(e)
+                            try:
+                                work_item_queue.put(e)
+                            except Exception as queue_error:
+                                self._logger.error(f"Stream reader: failed to put exception in queue: {queue_error}")
                     finally:
                         # signal that the stream reader is done (ie matching Go's context cancellation)
                         try:
                             work_item_queue.put(SHUTDOWN_SENTINEL)
-                        except Exception:
+                        except Exception as queue_error:
                             # queue might be closed so ignore this
                             pass
-
-                import threading
 
                 # Use non-daemon thread (daemon=False) to ensure proper resource cleanup.
                 # Daemon threads exit immediately when the main program exits, which prevents
@@ -528,7 +545,13 @@ class TaskHubGrpcWorker:
                 current_reader_thread = threading.Thread(
                     target=stream_reader, daemon=False, name="StreamReader"
                 )
-                current_reader_thread.start()
+
+                try:
+                    current_reader_thread.start()
+                    self._stream_ready.set()
+                except Exception:
+                    raise
+                
                 loop = asyncio.get_running_loop()
 
                 # NOTE: This is a blocking call that will wait for a work item to become available or the shutdown sentinel
@@ -1693,7 +1716,7 @@ def _is_suspendable(event: pb.HistoryEvent) -> bool:
 
 
 class _AsyncWorkerManager:
-    def __init__(self, concurrency_options: ConcurrencyOptions):
+    def __init__(self, concurrency_options: ConcurrencyOptions, logger: logging.Logger):
         self.concurrency_options = concurrency_options
         self.activity_semaphore = None
         self.orchestration_semaphore = None
@@ -1709,6 +1732,7 @@ class _AsyncWorkerManager:
             thread_name_prefix="DurableTask",
         )
         self._shutdown = False
+        self._logger = logger
 
     def _ensure_queues_for_current_loop(self):
         """Ensure queues are bound to the current event loop."""
@@ -1716,7 +1740,8 @@ class _AsyncWorkerManager:
             current_loop = asyncio.get_running_loop()
             if current_loop.is_closed():
                 return
-        except RuntimeError:
+        except RuntimeError as e:
+            self._logger.exception(f"Failed to get event loop {e}")
             # No event loop running, can't create queues
             return
 
@@ -1735,14 +1760,16 @@ class _AsyncWorkerManager:
             try:
                 while not self.activity_queue.empty():
                     existing_activity_items.append(self.activity_queue.get_nowait())
-            except Exception:
+            except Exception as e:
+                self._logger.debug(f"Failed to append to the activity queue {e}")
                 pass
 
         if self.orchestration_queue is not None:
             try:
                 while not self.orchestration_queue.empty():
                     existing_orchestration_items.append(self.orchestration_queue.get_nowait())
-            except Exception:
+            except Exception as e:
+                self._logger.debug(f"Failed to append to the orchestration queue {e}")
                 pass
 
         # Create fresh queues for the current event loop
