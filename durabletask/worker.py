@@ -534,7 +534,7 @@ class TaskHubGrpcWorker:
                         # signal that the stream reader is done (ie matching Go's context cancellation)
                         try:
                             work_item_queue.put(SHUTDOWN_SENTINEL)
-                        except Exception as queue_error:
+                        except Exception:
                             # queue might be closed so ignore this
                             pass
 
