@@ -26,8 +26,10 @@ from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
 
+
 class VersionNotRegisteredException(Exception):
     pass
+
 
 def _log_all_threads(logger: logging.Logger, context: str = ""):
     """Helper function to log all currently active threads for debugging."""
@@ -100,7 +102,9 @@ class _Registry:
         self.latest_versioned_orchestrators_version_name = {}
         self.activities = {}
 
-    def add_orchestrator(self, fn: task.Orchestrator, version_name: Optional[str] = None, is_latest: bool = False) -> str:
+    def add_orchestrator(
+        self, fn: task.Orchestrator, version_name: Optional[str] = None, is_latest: bool = False
+    ) -> str:
         if fn is None:
             raise ValueError("An orchestrator function argument is required.")
 
@@ -108,7 +112,13 @@ class _Registry:
         self.add_named_orchestrator(name, fn, version_name, is_latest)
         return name
 
-    def add_named_orchestrator(self, name: str, fn: task.Orchestrator, version_name: Optional[str] = None, is_latest: bool = False) -> None:
+    def add_named_orchestrator(
+        self,
+        name: str,
+        fn: task.Orchestrator,
+        version_name: Optional[str] = None,
+        is_latest: bool = False,
+    ) -> None:
         if not name:
             raise ValueError("A non-empty orchestrator name is required.")
 
@@ -120,12 +130,16 @@ class _Registry:
             if name not in self.versioned_orchestrators:
                 self.versioned_orchestrators[name] = {}
             if version_name in self.versioned_orchestrators[name]:
-                raise ValueError(f"The version '{version_name}' of '{name}' orchestrator already exists.")
+                raise ValueError(
+                    f"The version '{version_name}' of '{name}' orchestrator already exists."
+                )
             self.versioned_orchestrators[name][version_name] = fn
             if is_latest:
                 self.latest_versioned_orchestrators_version_name[name] = version_name
 
-    def get_orchestrator(self, name: str, version_name: Optional[str] = None) -> Optional[tuple[task.Orchestrator, str]]:
+    def get_orchestrator(
+        self, name: str, version_name: Optional[str] = None
+    ) -> Optional[tuple[task.Orchestrator, str]]:
         if name in self.orchestrators:
             return self.orchestrators.get(name), None
 
@@ -325,7 +339,7 @@ class TaskHubGrpcWorker:
 
     def is_worker_ready(self) -> bool:
         return self._stream_ready.is_set() and self._is_running
-        
+
     def start(self):
         """Starts the worker on a background thread and begins listening for work items."""
         if self._is_running:
@@ -456,11 +470,12 @@ class TaskHubGrpcWorker:
                     self._logger.info(
                         f"Successfully connected to {self._host_address}. Waiting for work items..."
                     )
-                except Exception as e:
+                except Exception:
                     raise
 
                 # Use a thread to read from the blocking gRPC stream and forward to asyncio
                 import queue
+
                 work_item_queue = queue.Queue()
                 SHUTDOWN_SENTINEL = None
 
@@ -516,20 +531,22 @@ class TaskHubGrpcWorker:
                                 # Other stream errors - put in queue for async loop to handle
                                 self._logger.error(
                                     f"Stream reader: unexpected error: {type(stream_error).__name__}: {stream_error}",
-                                    exc_info=True
+                                    exc_info=True,
                                 )
                                 raise
 
                     except Exception as e:
                         self._logger.exception(
                             f"Stream reader: fatal exception in stream_reader: {type(e).__name__}: {e}",
-                            exc_info=True
+                            exc_info=True,
                         )
                         if not self._shutdown.is_set():
                             try:
                                 work_item_queue.put(e)
                             except Exception as queue_error:
-                                self._logger.error(f"Stream reader: failed to put exception in queue: {queue_error}")
+                                self._logger.error(
+                                    f"Stream reader: failed to put exception in queue: {queue_error}"
+                                )
                     finally:
                         # signal that the stream reader is done (ie matching Go's context cancellation)
                         try:
@@ -551,7 +568,7 @@ class TaskHubGrpcWorker:
                     self._stream_ready.set()
                 except Exception:
                     raise
-                
+
                 loop = asyncio.get_running_loop()
 
                 # NOTE: This is a blocking call that will wait for a work item to become available or the shutdown sentinel
@@ -783,7 +800,6 @@ class TaskHubGrpcWorker:
                 version = version or pb.OrchestrationVersion()
                 version.patches.extend(result.patches)
 
-
             res = pb.OrchestratorResponse(
                 instanceId=req.instanceId,
                 actions=result.actions,
@@ -955,13 +971,11 @@ class _RuntimeOrchestrationContext(
         )
         self._pending_actions[action.id] = action
 
-
     def set_version_not_registered(self):
         self._pending_actions.clear()
         self._completion_status = pb.ORCHESTRATION_STATUS_STALLED
         action = ph.new_orchestrator_version_not_available_action(self.next_sequence_number())
         self._pending_actions[action.id] = action
-
 
     def set_continued_as_new(self, new_input: Any, save_events: bool):
         if self._is_complete:
@@ -1173,7 +1187,6 @@ class _RuntimeOrchestrationContext(
 
         self.set_continued_as_new(new_input, save_events)
 
-
     def is_patched(self, patch_name: str) -> bool:
         is_patched = self._is_patched(patch_name)
         if is_patched:
@@ -1201,7 +1214,13 @@ class ExecutionResults:
     version_name: Optional[str]
     patches: Optional[list[str]]
 
-    def __init__(self, actions: list[pb.OrchestratorAction], encoded_custom_status: Optional[str], version_name: Optional[str] = None, patches: Optional[list[str]] = None):
+    def __init__(
+        self,
+        actions: list[pb.OrchestratorAction],
+        encoded_custom_status: Optional[str],
+        version_name: Optional[str] = None,
+        patches: Optional[list[str]] = None,
+    ):
         self.actions = actions
         self.encoded_custom_status = encoded_custom_status
         self.version_name = version_name
@@ -1277,8 +1296,8 @@ class _OrchestrationExecutor:
         return ExecutionResults(
             actions=actions,
             encoded_custom_status=ctx._encoded_custom_status,
-            version_name=getattr(ctx, '_version_name', None),
-            patches=ctx._encountered_patches
+            version_name=getattr(ctx, "_version_name", None),
+            patches=ctx._encountered_patches,
         )
 
     def process_event(self, ctx: _RuntimeOrchestrationContext, event: pb.HistoryEvent) -> None:
@@ -1306,9 +1325,10 @@ class _OrchestrationExecutor:
                 if ctx._orchestrator_version_name:
                     version_name = ctx._orchestrator_version_name
 
-
                 # TODO: Check if we already started the orchestration
-                fn, version_used = self._registry.get_orchestrator(event.executionStarted.name, version_name=version_name)
+                fn, version_used = self._registry.get_orchestrator(
+                    event.executionStarted.name, version_name=version_name
+                )
 
                 if fn is None:
                     raise OrchestratorNotRegisteredError(
