@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Generator, Iterator, Optional, Sequence, TypeVar
+from typing import Any, Generator, Iterator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2
@@ -30,8 +30,7 @@ TOutput = TypeVar("TOutput")
 # If `opentelemetry-sdk` is available, enable the tracer
 try:
     from opentelemetry import trace
-    from opentelemetry.trace.propagation.tracecontext import \
-        TraceContextTextMapPropagator
+    from opentelemetry.trace.propagation.tracecontext TraceContextTextMapPropagator
 
     otel_propagator = TraceContextTextMapPropagator()
     otel_tracer = trace.get_tracer(__name__)
