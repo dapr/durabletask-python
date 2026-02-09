@@ -27,6 +27,7 @@ from durabletask.client import (
 # If `opentelemetry-instrumentation-grpc` is available, enable the gRPC client interceptor
 try:
     from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+
     GrpcInstrumentorClient().instrument()
 except ImportError:
     pass
