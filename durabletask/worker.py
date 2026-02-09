@@ -38,7 +38,6 @@ except ImportError:
     otel_tracer = None
 
 
-
 class VersionNotRegisteredException(Exception):
     pass
 
@@ -740,7 +739,13 @@ class TaskHubGrpcWorker:
 
         self._logger.info("Stopping gRPC worker...")
         if self._response_stream is not None:
-            self._response_stream.cancel()
+            if isinstance(self._response_stream, grpc.Future):
+                self._response_stream.cancel()
+            elif hasattr(self._response_stream, "call"):
+                # This is a generator returned by the gRPC stub
+                self._response_stream.call.cancel()
+            else:
+                self._logger.warning("Unknown response stream type, cannot cancel directly")
         self._shutdown.set()
         # Explicitly close the gRPC channel to ensure OTel interceptors and other resources are cleaned up
         if self._current_channel is not None:
@@ -854,13 +859,15 @@ class TaskHubGrpcWorker:
 
         if otel_tracer is not None:
             span_context = otel_tracer.start_as_current_span(
-                name=f'activity: {req.name}',
-                context=otel_propagator.extract(carrier={"traceparent": req.parentTraceContext.traceParent}),
+                name=f"activity: {req.name}",
+                context=otel_propagator.extract(
+                    carrier={"traceparent": req.parentTraceContext.traceParent}
+                ),
                 attributes={
                     "durabletask.task.instance_id": instance_id,
                     "durabletask.task.id": req.taskId,
                     "durabletask.activity.name": req.name,
-                }
+                },
             )
         else:
             span_context = contextlib.nullcontext()
