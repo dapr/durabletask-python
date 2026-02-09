@@ -38,7 +38,7 @@ def test_stop_with_unknown_stream_type(caplog):
     worker._response_stream = object()
     with caplog.at_level("WARNING"):
         worker.stop()
-    assert any("Unknown response stream type" in m for m in caplog.text.splitlines())
+    assert any("Error cancelling response stream: " in m for m in caplog.text.splitlines())
 
 
 def test_stop_with_none_stream():

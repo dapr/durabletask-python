@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Generator, Optional, Sequence, TypeVar, Union
+from typing import Any, Generator, Iterator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2
@@ -282,7 +282,7 @@ class TaskHubGrpcWorker:
             activity function.
     """
 
-    _response_stream: Optional[grpc.Future] = None
+    _response_stream: Optional[Union[Iterator[grpc.Future], grpc.Future]] = None
     _interceptors: Optional[list[shared.ClientInterceptor]] = None
 
     def __init__(
@@ -420,9 +420,12 @@ class TaskHubGrpcWorker:
             # Cancel the response stream first to signal the reader thread to stop
             if self._response_stream is not None:
                 try:
-                    self._response_stream.cancel()
-                except Exception:
-                    pass
+                    if hasattr(self._response_stream, "call"):
+                        self._response_stream.call.cancel()  # type: ignore
+                    else:
+                        self._response_stream.cancel()  # type: ignore
+                except Exception as e:
+                    self._logger.warning(f"Error cancelling response stream: {e}")
                 self._response_stream = None
 
             # Wait for the reader thread to finish
@@ -739,13 +742,13 @@ class TaskHubGrpcWorker:
 
         self._logger.info("Stopping gRPC worker...")
         if self._response_stream is not None:
-            if isinstance(self._response_stream, grpc.Future):
-                self._response_stream.cancel()
-            elif hasattr(self._response_stream, "call"):
-                # This is a generator returned by the gRPC stub
-                self._response_stream.call.cancel()
-            else:
-                self._logger.warning("Unknown response stream type, cannot cancel directly")
+            try:
+                if hasattr(self._response_stream, "call"):
+                    self._response_stream.call.cancel()  # type: ignore
+                else:
+                    self._response_stream.cancel()  # type: ignore
+            except Exception as e:
+                self._logger.warning(f"Error cancelling response stream: {e}")
         self._shutdown.set()
         # Explicitly close the gRPC channel to ensure OTel interceptors and other resources are cleaned up
         if self._current_channel is not None:
