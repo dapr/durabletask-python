@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
 from types import GeneratorType
-from typing import Any, Generator, Optional, Sequence, TypeVar, Union
+from typing import Any, Generator, Iterator, Optional, Sequence, TypeVar, Union
 
 import grpc
 from google.protobuf import empty_pb2
@@ -36,7 +36,6 @@ try:
     otel_tracer = trace.get_tracer(__name__)
 except ImportError:
     otel_tracer = None
-
 
 
 class VersionNotRegisteredException(Exception):
@@ -283,7 +282,7 @@ class TaskHubGrpcWorker:
             activity function.
     """
 
-    _response_stream: Optional[grpc.Future] = None
+    _response_stream: Optional[Union[Iterator[grpc.Future], grpc.Future]] = None
     _interceptors: Optional[list[shared.ClientInterceptor]] = None
 
     def __init__(
@@ -421,9 +420,12 @@ class TaskHubGrpcWorker:
             # Cancel the response stream first to signal the reader thread to stop
             if self._response_stream is not None:
                 try:
-                    self._response_stream.cancel()
-                except Exception:
-                    pass
+                    if hasattr(self._response_stream, "call"):
+                        self._response_stream.call.cancel()  # type: ignore
+                    else:
+                        self._response_stream.cancel()  # type: ignore
+                except Exception as e:
+                    self._logger.warning(f"Error cancelling response stream: {e}")
                 self._response_stream = None
 
             # Wait for the reader thread to finish
@@ -740,7 +742,13 @@ class TaskHubGrpcWorker:
 
         self._logger.info("Stopping gRPC worker...")
         if self._response_stream is not None:
-            self._response_stream.cancel()
+            try:
+                if hasattr(self._response_stream, "call"):
+                    self._response_stream.call.cancel()  # type: ignore
+                else:
+                    self._response_stream.cancel()  # type: ignore
+            except Exception as e:
+                self._logger.warning(f"Error cancelling response stream: {e}")
         self._shutdown.set()
         # Explicitly close the gRPC channel to ensure OTel interceptors and other resources are cleaned up
         if self._current_channel is not None:
@@ -854,13 +862,15 @@ class TaskHubGrpcWorker:
 
         if otel_tracer is not None:
             span_context = otel_tracer.start_as_current_span(
-                name=f'activity: {req.name}',
-                context=otel_propagator.extract(carrier={"traceparent": req.parentTraceContext.traceParent}),
+                name=f"activity: {req.name}",
+                context=otel_propagator.extract(
+                    carrier={"traceparent": req.parentTraceContext.traceParent}
+                ),
                 attributes={
                     "durabletask.task.instance_id": instance_id,
                     "durabletask.task.id": req.taskId,
                     "durabletask.activity.name": req.name,
-                }
+                },
             )
         else:
             span_context = contextlib.nullcontext()
