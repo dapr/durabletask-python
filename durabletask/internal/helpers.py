@@ -204,7 +204,11 @@ def new_create_timer_action(id: int, fire_at: datetime) -> pb.OrchestratorAction
 
 
 def new_schedule_task_action(
-    id: int, name: str, encoded_input: Optional[str], router: Optional[pb.TaskRouter] = None
+    id: int,
+    name: str,
+    encoded_input: Optional[str],
+    router: Optional[pb.TaskRouter] = None,
+    task_execution_id: str = "",
 ) -> pb.OrchestratorAction:
     return pb.OrchestratorAction(
         id=id,
@@ -212,6 +216,7 @@ def new_schedule_task_action(
             name=name,
             input=get_string_value(encoded_input),
             router=router,
+            taskExecutionId=task_execution_id,
         ),
         router=router,
     )

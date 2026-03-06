@@ -396,16 +396,24 @@ class RetryableTask(CompletableTask[T]):
     def __init__(
         self,
         retry_policy: RetryPolicy,
-        action: pb.OrchestratorAction,
         start_time: datetime,
         is_sub_orch: bool,
+        task_name: str,
+        encoded_input: Optional[str] = None,
+        task_execution_id: str = "",
+        instance_id: Optional[str] = None,
+        app_id: Optional[str] = None,
     ) -> None:
         super().__init__()
-        self._action = action
         self._retry_policy = retry_policy
         self._attempt_count = 1
         self._start_time = start_time
         self._is_sub_orch = is_sub_orch
+        self._task_name = task_name
+        self._encoded_input = encoded_input
+        self._task_execution_id = task_execution_id
+        self._instance_id = instance_id
+        self._app_id = app_id
 
     def increment_attempt_count(self) -> None:
         self._attempt_count += 1
@@ -479,9 +487,10 @@ def when_any(tasks: list[Task]) -> WhenAnyTask:
 
 
 class ActivityContext:
-    def __init__(self, orchestration_id: str, task_id: int):
+    def __init__(self, orchestration_id: str, task_id: int, task_execution_id: str = ""):
         self._orchestration_id = orchestration_id
         self._task_id = task_id
+        self._task_execution_id = task_execution_id
 
     @property
     def orchestration_id(self) -> str:
@@ -509,6 +518,21 @@ class ActivityContext:
             The ID of the current orchestration instance.
         """
         return self._task_id
+
+    @property
+    def task_execution_id(self) -> str:
+        """Get the task execution ID associated with this activity invocation.
+
+        The task execution ID is a UUID that is stable across retry attempts
+        of the same activity call. It can be used for idempotency and
+        deduplication when an activity may be retried.
+
+        Returns
+        -------
+        str
+            The task execution ID for this activity invocation.
+        """
+        return self._task_execution_id
 
 
 # Orchestrators are generators that yield tasks and receive/return any type

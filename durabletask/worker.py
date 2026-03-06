@@ -888,7 +888,9 @@ class TaskHubGrpcWorker:
         with span_context:
             try:
                 executor = _ActivityExecutor(self._registry, self._logger)
-                result = executor.execute(instance_id, req.name, req.taskId, req.input.value)
+                result = executor.execute(
+                    instance_id, req.name, req.taskId, req.input.value, req.taskExecutionId
+                )
                 res = pb.ActivityResponse(
                     instanceId=instance_id,
                     taskId=req.taskId,
@@ -1125,9 +1127,16 @@ class _RuntimeOrchestrationContext(
         app_id: Optional[str] = None,
     ) -> task.Task[TOutput]:
         id = self.next_sequence_number()
+        task_execution_id = str(self.new_guid())
 
         self.call_activity_function_helper(
-            id, activity, input=input, retry_policy=retry_policy, is_sub_orch=False, app_id=app_id
+            id,
+            activity,
+            input=input,
+            retry_policy=retry_policy,
+            is_sub_orch=False,
+            app_id=app_id,
+            task_execution_id=task_execution_id,
         )
         return self._pending_tasks.get(id, task.CompletableTask())
 
@@ -1167,6 +1176,7 @@ class _RuntimeOrchestrationContext(
         instance_id: Optional[str] = None,
         fn_task: Optional[task.CompletableTask[TOutput]] = None,
         app_id: Optional[str] = None,
+        task_execution_id: str = "",
     ):
         if id is None:
             id = self.next_sequence_number()
@@ -1180,16 +1190,17 @@ class _RuntimeOrchestrationContext(
         if fn_task is None:
             encoded_input = shared.to_json(input) if input is not None else None
         else:
-            # Here, we don't need to convert the input to JSON because it is already converted.
-            # We just need to take string representation of it.
-            encoded_input = str(input)
+            # When retrying, input is already encoded as a string (or None).
+            encoded_input = str(input) if input is not None else None
         if not is_sub_orch:
             name = (
                 activity_function
                 if isinstance(activity_function, str)
                 else task.get_name(activity_function)
             )
-            action = ph.new_schedule_task_action(id, name, encoded_input, router)
+            action = ph.new_schedule_task_action(
+                id, name, encoded_input, router, task_execution_id=task_execution_id
+            )
         else:
             if instance_id is None:
                 # Create a deteministic instance ID based on the parent instance ID
@@ -1207,9 +1218,13 @@ class _RuntimeOrchestrationContext(
             else:
                 fn_task = task.RetryableTask[TOutput](
                     retry_policy=retry_policy,
-                    action=action,
                     start_time=self.current_utc_datetime,
                     is_sub_orch=is_sub_orch,
+                    task_name=name if not is_sub_orch else activity_function,
+                    encoded_input=encoded_input,
+                    task_execution_id=task_execution_id,
+                    instance_id=instance_id,
+                    app_id=app_id,
                 )
         self._pending_tasks[id] = fn_task
 
@@ -1429,28 +1444,18 @@ class _OrchestrationExecutor:
                     return
                 timer_task.complete(None)
                 if timer_task._retryable_parent is not None:
-                    activity_action = timer_task._retryable_parent._action
-
-                    if not timer_task._retryable_parent._is_sub_orch:
-                        cur_task = activity_action.scheduleTask
-                        instance_id = None
-                    else:
-                        cur_task = activity_action.createSubOrchestration
-                        instance_id = cur_task.instanceId
-                    if cur_task.router and cur_task.router.targetAppID:
-                        target_app_id = cur_task.router.targetAppID
-                    else:
-                        target_app_id = None
+                    retryable = timer_task._retryable_parent
 
                     ctx.call_activity_function_helper(
-                        id=activity_action.id,
-                        activity_function=cur_task.name,
-                        input=cur_task.input.value,
-                        retry_policy=timer_task._retryable_parent._retry_policy,
-                        is_sub_orch=timer_task._retryable_parent._is_sub_orch,
-                        instance_id=instance_id,
-                        fn_task=timer_task._retryable_parent,
-                        app_id=target_app_id,
+                        id=None,  # Get a new sequence number
+                        activity_function=retryable._task_name,
+                        input=retryable._encoded_input,
+                        retry_policy=retryable._retry_policy,
+                        is_sub_orch=retryable._is_sub_orch,
+                        instance_id=retryable._instance_id,
+                        fn_task=retryable,
+                        app_id=retryable._app_id,
+                        task_execution_id=retryable._task_execution_id,
                     )
                 else:
                     ctx.resume()
@@ -1682,6 +1687,7 @@ class _ActivityExecutor:
         name: str,
         task_id: int,
         encoded_input: Optional[str],
+        task_execution_id: str = "",
     ) -> Optional[str]:
         """Executes an activity function and returns the serialized result, if any."""
         self._logger.debug(f"{orchestration_id}/{task_id}: Executing activity '{name}'...")
@@ -1692,7 +1698,7 @@ class _ActivityExecutor:
             )
 
         activity_input = shared.from_json(encoded_input) if encoded_input else None
-        ctx = task.ActivityContext(orchestration_id, task_id)
+        ctx = task.ActivityContext(orchestration_id, task_id, task_execution_id)
 
         # Execute the activity function
         activity_output = fn(ctx, activity_input)
