@@ -383,6 +383,10 @@ def test_activity_retry_policies():
     assert len(actions) == 1
     assert actions[0].HasField("scheduleTask")
     assert actions[0].id == 3  # NEW sequence number for retry
+    # Capture the taskExecutionId from first retry - it must be non-empty
+    # and consistent across ALL retry attempts
+    retry_task_execution_id = actions[0].scheduleTask.taskExecutionId
+    assert retry_task_execution_id != "", "taskExecutionId must be non-empty"
 
     # --- Attempt 2: scheduleTask(id=3) fails ---
     old_events = old_events + new_events
@@ -414,6 +418,7 @@ def test_activity_retry_policies():
     assert len(actions) == 1
     assert actions[0].HasField("scheduleTask")
     assert actions[0].id == 5
+    assert actions[0].scheduleTask.taskExecutionId == retry_task_execution_id
 
     # --- Attempt 3: scheduleTask(id=5) fails ---
     expected_fire_at = current_timestamp + timedelta(seconds=4)
@@ -445,6 +450,7 @@ def test_activity_retry_policies():
     assert len(actions) == 1
     assert actions[0].HasField("scheduleTask")
     assert actions[0].id == 7
+    assert actions[0].scheduleTask.taskExecutionId == retry_task_execution_id
 
     # --- Attempt 4: scheduleTask(id=7) fails ---
     expected_fire_at = current_timestamp + timedelta(seconds=8)
@@ -476,6 +482,7 @@ def test_activity_retry_policies():
     assert len(actions) == 1
     assert actions[0].HasField("scheduleTask")
     assert actions[0].id == 9
+    assert actions[0].scheduleTask.taskExecutionId == retry_task_execution_id
 
     # --- Attempt 5: scheduleTask(id=9) fails ---
     # max_retry_interval caps at 10 seconds (instead of 16)
@@ -508,6 +515,7 @@ def test_activity_retry_policies():
     assert len(actions) == 1
     assert actions[0].HasField("scheduleTask")
     assert actions[0].id == 11
+    assert actions[0].scheduleTask.taskExecutionId == retry_task_execution_id
 
     # --- Attempt 6: scheduleTask(id=11) fails - max attempts exhausted ---
     old_events = old_events + new_events
