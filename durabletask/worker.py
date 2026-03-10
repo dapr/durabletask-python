@@ -1093,10 +1093,18 @@ class _RuntimeOrchestrationContext(
     def is_replaying(self) -> bool:
         return self._is_replaying
 
-    def set_custom_status(self, custom_status: Any) -> None:
-        self._encoded_custom_status = (
-            shared.to_json(custom_status) if custom_status is not None else None
-        )
+    def set_custom_status(self, custom_status: str) -> None:
+        if custom_status is not None and not isinstance(custom_status, str):
+            import warnings
+            warnings.warn(
+                "Passing a non-str value to set_custom_status is deprecated and will be "
+                "removed in a future version. Serialize your value to a JSON string before calling.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._encoded_custom_status = shared.to_json(custom_status)
+        else:
+            self._encoded_custom_status = custom_status
 
     def create_timer(self, fire_at: Union[datetime, timedelta]) -> task.Task:
         return self.create_timer_internal(fire_at)

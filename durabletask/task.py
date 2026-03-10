@@ -70,13 +70,13 @@ class OrchestrationContext(ABC):
         pass
 
     @abstractmethod
-    def set_custom_status(self, custom_status: Any) -> None:
+    def set_custom_status(self, custom_status: str) -> None:
         """Set the orchestration instance's custom status.
 
         Parameters
         ----------
-        custom_status: Any
-            A JSON-serializable custom status value to set.
+        custom_status: str
+            A custom status string to set.
         """
         pass
 
