@@ -407,8 +407,7 @@ class TaskHubGrpcWorker:
                 conn_retry_count = 0
                 self._logger.info(f"Created fresh connection to {self._host_address}")
             except Exception as e:
-                detail = getattr(e, "details", lambda: str(e))()
-                self._logger.warning("Failed to create connection: %s", detail)
+                self._logger.warning(f"Failed to create connection: {e}")
                 current_channel = None
                 self._current_channel = None
                 current_stub = None
@@ -523,7 +522,9 @@ class TaskHubGrpcWorker:
                                 self._logger.warning(
                                     "Stream reader: RPC error (code=%s): %s",
                                     rpc_error.code(),
-                                    rpc_error.details() if hasattr(rpc_error, "details") else rpc_error,
+                                    rpc_error.details()
+                                    if hasattr(rpc_error, "details")
+                                    else rpc_error,
                                 )
                                 break
                             except Exception as stream_error:
@@ -645,7 +646,9 @@ class TaskHubGrpcWorker:
                 if should_invalidate:
                     invalidate_connection()
                 error_code = rpc_error.code()  # type: ignore
-                error_detail = rpc_error.details() if hasattr(rpc_error, "details") else str(rpc_error)
+                error_detail = (
+                    rpc_error.details() if hasattr(rpc_error, "details") else str(rpc_error)
+                )
 
                 if error_code == grpc.StatusCode.CANCELLED:
                     self._logger.info(f"Disconnected from {self._host_address}")
@@ -775,9 +778,7 @@ class TaskHubGrpcWorker:
                 rpc_error.details() if hasattr(rpc_error, "details") else rpc_error,
             )
         else:
-            self._logger.exception(
-                f"Failed to deliver {request_type} result: {rpc_error}"
-            )
+            self._logger.exception(f"Failed to deliver {request_type} result: {rpc_error}")
 
     def _execute_orchestrator(
         self,

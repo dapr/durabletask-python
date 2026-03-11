@@ -102,7 +102,9 @@ def get_grpc_channel(
 
     merged_options = _merge_grpc_options(options)
     if secure_channel:
-        channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials(), options=merged_options)
+        channel = grpc.secure_channel(
+            host_address, grpc.ssl_channel_credentials(), options=merged_options
+        )
     else:
         channel = grpc.insecure_channel(host_address, options=merged_options)
 
