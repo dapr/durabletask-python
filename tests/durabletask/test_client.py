@@ -2,7 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from durabletask import client
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
-from durabletask.internal.shared import get_default_host_address, get_grpc_channel
+from durabletask.internal.shared import (
+    DEFAULT_GRPC_KEEPALIVE_OPTIONS,
+    get_default_host_address,
+    get_grpc_channel,
+)
+
+EXPECTED_DEFAULT_OPTIONS = list(DEFAULT_GRPC_KEEPALIVE_OPTIONS)
 
 HOST_ADDRESS = "localhost:50051"
 METADATA = [("key1", "value1"), ("key2", "value2")]
@@ -14,7 +20,7 @@ def test_get_grpc_channel_insecure():
         get_grpc_channel(HOST_ADDRESS, False, interceptors=INTERCEPTORS)
         args, kwargs = mock_channel.call_args
         assert args[0] == HOST_ADDRESS
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
 
 def test_get_grpc_channel_secure():
@@ -26,7 +32,7 @@ def test_get_grpc_channel_secure():
         args, kwargs = mock_channel.call_args
         assert args[0] == HOST_ADDRESS
         assert args[1] == mock_credentials.return_value
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
 
 def test_get_grpc_channel_default_host_address():
@@ -34,7 +40,7 @@ def test_get_grpc_channel_default_host_address():
         get_grpc_channel(None, False, interceptors=INTERCEPTORS)
         args, kwargs = mock_channel.call_args
         assert args[0] == get_default_host_address()
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
 
 def test_get_grpc_channel_with_metadata():
@@ -45,7 +51,7 @@ def test_get_grpc_channel_with_metadata():
         get_grpc_channel(HOST_ADDRESS, False, interceptors=INTERCEPTORS)
         args, kwargs = mock_channel.call_args
         assert args[0] == HOST_ADDRESS
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
         mock_intercept_channel.assert_called_once()
 
         # Capture and check the arguments passed to intercept_channel()
@@ -66,61 +72,61 @@ def test_grpc_channel_with_host_name_protocol_stripping():
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_insecure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "http://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_insecure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "HTTP://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_insecure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "GRPC://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_insecure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = ""
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_insecure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "grpcs://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "https://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "HTTPS://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = "GRPCS://"
         get_grpc_channel(prefix + host_name, interceptors=INTERCEPTORS)
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
         prefix = ""
         get_grpc_channel(prefix + host_name, True, interceptors=INTERCEPTORS)
         args, kwargs = mock_secure_channel.call_args
         assert args[0] == host_name
-        assert "options" in kwargs and kwargs["options"] is None
+        assert "options" in kwargs and kwargs["options"] == EXPECTED_DEFAULT_OPTIONS
 
 
 def test_sync_channel_passes_base_options_and_max_lengths():

@@ -50,6 +50,14 @@ def get_default_host_address() -> str:
     return "localhost:4001"
 
 
+DEFAULT_GRPC_KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 30_000),
+    ("grpc.keepalive_timeout_ms", 10_000),
+    ("grpc.http2.max_pings_without_data", 0),
+    ("grpc.keepalive_permit_without_calls", 1),
+)
+
+
 def get_grpc_channel(
     host_address: Optional[str],
     secure_channel: bool = False,
@@ -81,10 +89,16 @@ def get_grpc_channel(
             host_address = host_address[len(protocol) :]
             break
 
+    merged = dict(DEFAULT_GRPC_KEEPALIVE_OPTIONS)
+    if options:
+        merged.update(dict(options))
+    merged_options = list(merged.items())
     if secure_channel:
-        channel = grpc.secure_channel(host_address, grpc.ssl_channel_credentials(), options=options)
+        channel = grpc.secure_channel(
+            host_address, grpc.ssl_channel_credentials(), options=merged_options
+        )
     else:
-        channel = grpc.insecure_channel(host_address, options=options)
+        channel = grpc.insecure_channel(host_address, options=merged_options)
 
     # Apply interceptors ONLY if they exist
     if interceptors:
