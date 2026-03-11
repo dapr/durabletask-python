@@ -307,6 +307,7 @@ class TaskHubGrpcWorker:
         self._channel_options = channel_options
         self._stop_timeout = stop_timeout
         self._current_channel: Optional[grpc.Channel] = None  # Store channel reference for cleanup
+        self._channel_cleanup_threads: list[threading.Thread] = []  # Deferred channel close threads
         self._stream_ready = threading.Event()
         # Use provided concurrency options or create default ones
         self._concurrency_options = (
@@ -388,9 +389,12 @@ class TaskHubGrpcWorker:
 
         def create_fresh_connection():
             nonlocal current_channel, current_stub, conn_retry_count
-            # Don't call channel.close() — in-flight activity RPCs on the
-            # old stub may still reference the channel from another thread.
-            # The old channel is GC'd once all references are released.
+            # Schedule deferred close of old channel to avoid orphaned TCP
+            # connections. In-flight RPCs on the old stub may still reference
+            # the channel from another thread, so we wait a grace period
+            # before closing instead of closing immediately.
+            if current_channel is not None:
+                self._schedule_deferred_channel_close(current_channel)
             current_channel = None
             current_stub = None
             try:
@@ -415,12 +419,12 @@ class TaskHubGrpcWorker:
 
         def invalidate_connection():
             nonlocal current_channel, current_stub, current_reader_thread
-            # Null out references so the next iteration creates a fresh connection.
-            # Do NOT call channel.close() here — in-flight activity RPCs
-            # (CompleteActivityTask) may still be using the stub on another
-            # thread. Closing the channel concurrently causes segfaults in the
-            # gRPC C extension. The old channel is GC'd once all references
-            # (including captured stub refs in activity threads) are released.
+            # Schedule deferred close of old channel to avoid orphaned TCP
+            # connections. In-flight RPCs (e.g. CompleteActivityTask) may still
+            # be using the stub on another thread, so we defer the close by a
+            # grace period instead of closing immediately.
+            if current_channel is not None:
+                self._schedule_deferred_channel_close(current_channel)
             current_channel = None
             self._current_channel = None
             current_stub = None
@@ -717,6 +721,38 @@ class TaskHubGrpcWorker:
         except Exception as e:
             self._logger.warning(f"Error while waiting for worker task shutdown: {e}")
 
+    def _schedule_deferred_channel_close(
+        self, old_channel: grpc.Channel, grace_timeout: float = 10.0
+    ):
+        """Schedule a deferred close of an old gRPC channel.
+
+        Waits up to *grace_timeout* seconds for in-flight RPCs to complete
+        before closing the channel.  This prevents orphaned TCP connections
+        while still allowing in-flight work (e.g. ``CompleteActivityTask``
+        calls on another thread) to finish gracefully.
+
+        During ``stop()``, ``_shutdown`` is already set so the wait returns
+        immediately and the channel is closed at once.
+        """
+        # Prune already-finished cleanup threads to avoid unbounded growth
+        self._channel_cleanup_threads = [t for t in self._channel_cleanup_threads if t.is_alive()]
+
+        def _deferred_close():
+            try:
+                # Normal reconnect: wait grace period for RPCs to drain.
+                # Shutdown: _shutdown is already set, returns immediately.
+                self._shutdown.wait(timeout=grace_timeout)
+            finally:
+                try:
+                    old_channel.close()
+                    self._logger.debug("Deferred channel close completed")
+                except Exception as e:
+                    self._logger.debug(f"Error during deferred channel close: {e}")
+
+        thread = threading.Thread(target=_deferred_close, daemon=True, name="ChannelCleanup")
+        thread.start()
+        self._channel_cleanup_threads.append(thread)
+
     def stop(self):
         """Stops the worker and waits for any pending work items to complete."""
         if not self._is_running:
@@ -742,6 +778,11 @@ class TaskHubGrpcWorker:
                 )
             else:
                 self._logger.debug("Worker thread completed successfully")
+
+        # Wait for any deferred channel-cleanup threads to finish
+        for t in self._channel_cleanup_threads:
+            t.join(timeout=5)
+        self._channel_cleanup_threads.clear()
 
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")

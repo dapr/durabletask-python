@@ -58,17 +58,6 @@ DEFAULT_GRPC_KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
 )
 
 
-def _merge_grpc_options(
-    user_options: Optional[Sequence[tuple[str, Any]]],
-    defaults: Sequence[tuple[str, Any]] = DEFAULT_GRPC_KEEPALIVE_OPTIONS,
-) -> list[tuple[str, Any]]:
-    """Merge user gRPC options with defaults. User options take precedence."""
-    merged = dict(defaults)
-    if user_options:
-        merged.update(dict(user_options))
-    return list(merged.items())
-
-
 def get_grpc_channel(
     host_address: Optional[str],
     secure_channel: bool = False,
@@ -100,7 +89,10 @@ def get_grpc_channel(
             host_address = host_address[len(protocol) :]
             break
 
-    merged_options = _merge_grpc_options(options)
+    merged = dict(DEFAULT_GRPC_KEEPALIVE_OPTIONS)
+    if options:
+        merged.update(dict(options))
+    merged_options = list(merged.items())
     if secure_channel:
         channel = grpc.secure_channel(
             host_address, grpc.ssl_channel_credentials(), options=merged_options
