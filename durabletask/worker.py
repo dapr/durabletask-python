@@ -655,16 +655,10 @@ class TaskHubGrpcWorker:
                     break
                 elif should_invalidate:
                     self._logger.warning(
-                        "Connection error (%s): %s — resetting connection",
-                        error_code,
-                        error_detail,
+                        f"Connection error ({error_code}): {error_detail} — resetting connection"
                     )
                 else:
-                    self._logger.warning(
-                        "gRPC error (%s): %s",
-                        error_code,
-                        error_detail,
-                    )
+                    self._logger.warning(f"gRPC error ({error_code}): {error_detail}")
             except RuntimeError as ex:
                 # RuntimeError often indicates asyncio loop issues (e.g., "cannot schedule new futures after shutdown")
                 # Check shutdown state first
@@ -772,10 +766,8 @@ class TaskHubGrpcWorker:
         )
         if is_transient or is_benign or self._shutdown.is_set():
             self._logger.warning(
-                "Could not deliver %s result (%s): %s — sidecar will re-dispatch",
-                request_type,
-                rpc_error.code(),
-                rpc_error.details() if hasattr(rpc_error, "details") else rpc_error,
+                f"Could not deliver {request_type} result ({rpc_error.code()}): "
+                f"{rpc_error.details() if hasattr(rpc_error, 'details') else rpc_error} — sidecar will re-dispatch"
             )
         else:
             self._logger.exception(f"Failed to deliver {request_type} result: {rpc_error}")
