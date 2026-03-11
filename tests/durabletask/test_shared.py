@@ -11,7 +11,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-
 from durabletask.internal.shared import (
     DEFAULT_GRPC_KEEPALIVE_OPTIONS,
     _merge_grpc_options,
