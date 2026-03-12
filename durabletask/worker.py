@@ -231,6 +231,9 @@ class TaskHubGrpcWorker:
             controlling worker concurrency limits. If None, default settings are used.
         stop_timeout (float, optional): Maximum time in seconds to wait for the worker thread
             to stop when calling stop(). Defaults to 30.0. Useful to set lower values in tests.
+        keepalive_interval (float, optional): Interval in seconds between application-level
+            keepalive Hello RPCs sent to prevent L7 load balancers (e.g. AWS ALB) from closing
+            idle HTTP/2 connections. Set to 0 or negative to disable. Defaults to 30.0.
 
     Attributes:
         concurrency_options (ConcurrencyOptions): The current concurrency configuration.
@@ -297,6 +300,7 @@ class TaskHubGrpcWorker:
         concurrency_options: Optional[ConcurrencyOptions] = None,
         channel_options: Optional[Sequence[tuple[str, Any]]] = None,
         stop_timeout: float = 30.0,
+        keepalive_interval: float = 30.0,
     ):
         self._registry = _Registry()
         self._host_address = host_address if host_address else shared.get_default_host_address()
@@ -306,6 +310,7 @@ class TaskHubGrpcWorker:
         self._secure_channel = secure_channel
         self._channel_options = channel_options
         self._stop_timeout = stop_timeout
+        self._keepalive_interval = keepalive_interval
         self._current_channel: Optional[grpc.Channel] = None  # Store channel reference for cleanup
         self._channel_cleanup_threads: list[threading.Thread] = []  # Deferred channel close threads
         self._stream_ready = threading.Event()
@@ -368,6 +373,26 @@ class TaskHubGrpcWorker:
         if not self._stream_ready.wait(timeout=10):
             raise RuntimeError("Failed to establish work item stream connection within 10 seconds")
         self._is_running = True
+
+    async def _keepalive_loop(self, stub):
+        """Background keepalive loop to keep the gRPC connection alive through L7 load balancers."""
+        loop = asyncio.get_running_loop()
+        while not self._shutdown.is_set():
+            await asyncio.sleep(self._keepalive_interval)
+            if self._shutdown.is_set():
+                return
+            try:
+                await loop.run_in_executor(None, lambda: stub.Hello(empty_pb2.Empty(), timeout=10))
+            except Exception as e:
+                self._logger.debug(f"keepalive failed: {e}")
+
+    @staticmethod
+    async def _cancel_keepalive(keepalive_task):
+        """Cancel and await the keepalive task if it exists."""
+        if keepalive_task is not None:
+            keepalive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await keepalive_task
 
     # TODO: refactor this to be more readable and maintainable.
     async def _async_run_loop(self):
@@ -464,6 +489,7 @@ class TaskHubGrpcWorker:
                     if self._shutdown.wait(delay):
                         break
                     continue
+            keepalive_task = None
             try:
                 assert current_stub is not None
                 stub = current_stub
@@ -580,6 +606,8 @@ class TaskHubGrpcWorker:
                     raise
 
                 loop = asyncio.get_running_loop()
+                if self._keepalive_interval > 0:
+                    keepalive_task = asyncio.ensure_future(self._keepalive_loop(stub))
 
                 # NOTE: This is a blocking call that will wait for a work item to become available or the shutdown sentinel
                 while not self._shutdown.is_set():
@@ -629,6 +657,7 @@ class TaskHubGrpcWorker:
                         invalidate_connection()
                         raise e
                 current_reader_thread.join(timeout=1)
+                await self._cancel_keepalive(keepalive_task)
 
                 if self._shutdown.is_set():
                     self._logger.info(f"Disconnected from {self._host_address}")
@@ -642,6 +671,7 @@ class TaskHubGrpcWorker:
                 # Fall through to the top of the outer loop, which will
                 # create a fresh connection (with retry/backoff if needed)
             except grpc.RpcError as rpc_error:
+                await self._cancel_keepalive(keepalive_task)
                 # Check shutdown first - if shutting down, exit immediately
                 if self._shutdown.is_set():
                     self._logger.debug("Shutdown detected during RPC error handling, exiting")
@@ -664,6 +694,7 @@ class TaskHubGrpcWorker:
                 else:
                     self._logger.warning(f"gRPC error ({error_code}): {error_detail}")
             except RuntimeError as ex:
+                await self._cancel_keepalive(keepalive_task)
                 # RuntimeError often indicates asyncio loop issues (e.g., "cannot schedule new futures after shutdown")
                 # Check shutdown state first
                 if self._shutdown.is_set():
@@ -687,6 +718,7 @@ class TaskHubGrpcWorker:
                 # it's likely shutdown-related. Break to prevent infinite retries.
                 break
             except Exception as ex:
+                await self._cancel_keepalive(keepalive_task)
                 if self._shutdown.is_set():
                     self._logger.debug(
                         f"Shutdown detected during exception handling, exiting: {ex}"
