@@ -481,4 +481,4 @@ async def test_custom_status():
     assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == '"foobaz"'
+    assert state.serialized_custom_status == 'foobaz'
