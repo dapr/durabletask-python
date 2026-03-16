@@ -202,19 +202,12 @@ class ActivityNotRegisteredError(ValueError):
 
 
 def _is_message_too_large(rpc_error: grpc.RpcError) -> bool:
-    """Return True if a RESOURCE_EXHAUSTED error is due to a message exceeding the gRPC size limit.
+    """Return True if the gRPC error is RESOURCE_EXHAUSTED.
 
-    RESOURCE_EXHAUSTED is also used for rate limiting / quota errors, which are transient and
-    should not be treated the same as a permanent message-size violation.
+    All RESOURCE_EXHAUSTED errors are treated as a permanent message-size violation
+    so the sidecar always receives an acknowledgment and avoids infinite redelivery.
     """
-    if rpc_error.code() != grpc.StatusCode.RESOURCE_EXHAUSTED:
-        return False
-    details = (rpc_error.details() or "").lower()
-    return (
-        "message larger than max" in details
-        or "received message larger than max" in details
-        or "sent message larger than max" in details
-    )
+    return rpc_error.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
 
 
 # TODO: refactor this to closely match durabletask-go/client/worker_grpc.go instead of this.
