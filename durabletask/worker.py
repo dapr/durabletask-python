@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import threading
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Event, Thread
@@ -36,7 +37,6 @@ try:
     otel_tracer = trace.get_tracer(__name__)
 except ImportError:
     otel_tracer = None
-
 
 
 class VersionNotRegisteredException(Exception):
@@ -244,6 +244,9 @@ class TaskHubGrpcWorker:
             controlling worker concurrency limits. If None, default settings are used.
         stop_timeout (float, optional): Maximum time in seconds to wait for the worker thread
             to stop when calling stop(). Defaults to 30.0. Useful to set lower values in tests.
+        keepalive_interval (float, optional): Interval in seconds between application-level
+            keepalive Hello RPCs sent to prevent L7 load balancers (e.g. AWS ALB) from closing
+            idle HTTP/2 connections. Set to 0 or negative to disable. Defaults to 30.0.
 
     Attributes:
         concurrency_options (ConcurrencyOptions): The current concurrency configuration.
@@ -295,7 +298,7 @@ class TaskHubGrpcWorker:
             activity function.
     """
 
-    _response_stream: Optional[Iterator[Any]] = None
+    _response_stream: Optional[Union[Iterator[grpc.Future], grpc.Future]] = None
     _interceptors: Optional[list[shared.ClientInterceptor]] = None
 
     def __init__(
@@ -310,6 +313,7 @@ class TaskHubGrpcWorker:
         concurrency_options: Optional[ConcurrencyOptions] = None,
         channel_options: Optional[Sequence[tuple[str, Any]]] = None,
         stop_timeout: float = 30.0,
+        keepalive_interval: float = 30.0,
     ):
         self._registry = _Registry()
         self._host_address = host_address if host_address else shared.get_default_host_address()
@@ -319,7 +323,9 @@ class TaskHubGrpcWorker:
         self._secure_channel = secure_channel
         self._channel_options = channel_options
         self._stop_timeout = stop_timeout
+        self._keepalive_interval = keepalive_interval
         self._current_channel: Optional[grpc.Channel] = None  # Store channel reference for cleanup
+        self._channel_cleanup_threads: list[threading.Thread] = []  # Deferred channel close threads
         self._stream_ready = threading.Event()
         # Use provided concurrency options or create default ones
         self._concurrency_options = (
@@ -381,6 +387,26 @@ class TaskHubGrpcWorker:
             raise RuntimeError("Failed to establish work item stream connection within 10 seconds")
         self._is_running = True
 
+    async def _keepalive_loop(self, stub):
+        """Background keepalive loop to keep the gRPC connection alive through L7 load balancers."""
+        loop = asyncio.get_running_loop()
+        while not self._shutdown.is_set():
+            await asyncio.sleep(self._keepalive_interval)
+            if self._shutdown.is_set():
+                return
+            try:
+                await loop.run_in_executor(None, lambda: stub.Hello(empty_pb2.Empty(), timeout=10))
+            except Exception as e:
+                self._logger.debug(f"keepalive failed: {e}")
+
+    @staticmethod
+    async def _cancel_keepalive(keepalive_task):
+        """Cancel and await the keepalive task if it exists."""
+        if keepalive_task is not None:
+            keepalive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await keepalive_task
+
     # TODO: refactor this to be more readable and maintainable.
     async def _async_run_loop(self):
         """
@@ -397,15 +423,16 @@ class TaskHubGrpcWorker:
         current_stub = None
         current_reader_thread = None
         conn_retry_count = 0
-        conn_max_retry_delay = 60
+        conn_max_retry_delay = 15
 
         def create_fresh_connection():
             nonlocal current_channel, current_stub, conn_retry_count
-            if current_channel:
-                try:
-                    current_channel.close()
-                except Exception:
-                    pass
+            # Schedule deferred close of old channel to avoid orphaned TCP
+            # connections. In-flight RPCs on the old stub may still reference
+            # the channel from another thread, so we wait a grace period
+            # before closing instead of closing immediately.
+            if current_channel is not None:
+                self._schedule_deferred_channel_close(current_channel)
             current_channel = None
             current_stub = None
             try:
@@ -430,28 +457,20 @@ class TaskHubGrpcWorker:
 
         def invalidate_connection():
             nonlocal current_channel, current_stub, current_reader_thread
-            # Close the response stream first to signal the reader thread to stop
-            if self._response_stream is not None:
-                try:
-                    self._response_stream.close()
-                except Exception:
-                    pass
-                self._response_stream = None
-
-            # Wait for the reader thread to finish
-            if current_reader_thread is not None:
-                current_reader_thread.join(timeout=1)
-                current_reader_thread = None
-
-            # Close the channel
-            if current_channel:
-                try:
-                    current_channel.close()
-                except Exception:
-                    pass
+            # Schedule deferred close of old channel to avoid orphaned TCP
+            # connections. In-flight RPCs (e.g. CompleteActivityTask) may still
+            # be using the stub on another thread, so we defer the close by a
+            # grace period instead of closing immediately.
+            if current_channel is not None:
+                self._schedule_deferred_channel_close(current_channel)
             current_channel = None
             self._current_channel = None
             current_stub = None
+            self._response_stream = None
+
+            if current_reader_thread is not None:
+                current_reader_thread.join(timeout=5)
+                current_reader_thread = None
 
         def should_invalidate_connection(rpc_error):
             error_code = rpc_error.code()  # type: ignore
@@ -461,6 +480,7 @@ class TaskHubGrpcWorker:
                 grpc.StatusCode.CANCELLED,
                 grpc.StatusCode.UNAUTHENTICATED,
                 grpc.StatusCode.ABORTED,
+                grpc.StatusCode.INTERNAL,  # RST_STREAM from proxy means connection is dead
             }
             return error_code in connection_level_errors
 
@@ -482,6 +502,7 @@ class TaskHubGrpcWorker:
                     if self._shutdown.wait(delay):
                         break
                     continue
+            keepalive_task = None
             try:
                 assert current_stub is not None
                 stub = current_stub
@@ -542,7 +563,11 @@ class TaskHubGrpcWorker:
                                     break
                                 # Other RPC errors - put in queue for async loop to handle
                                 self._logger.warning(
-                                    f"Stream reader: RPC error (code={rpc_error.code()}): {rpc_error}"
+                                    "Stream reader: RPC error (code=%s): %s",
+                                    rpc_error.code(),
+                                    rpc_error.details()
+                                    if hasattr(rpc_error, "details")
+                                    else rpc_error,
                                 )
                                 break
                             except Exception as stream_error:
@@ -594,6 +619,8 @@ class TaskHubGrpcWorker:
                     raise
 
                 loop = asyncio.get_running_loop()
+                if self._keepalive_interval > 0:
+                    keepalive_task = asyncio.ensure_future(self._keepalive_loop(stub))
 
                 # NOTE: This is a blocking call that will wait for a work item to become available or the shutdown sentinel
                 while not self._shutdown.is_set():
@@ -643,16 +670,21 @@ class TaskHubGrpcWorker:
                         invalidate_connection()
                         raise e
                 current_reader_thread.join(timeout=1)
+                await self._cancel_keepalive(keepalive_task)
 
                 if self._shutdown.is_set():
                     self._logger.info(f"Disconnected from {self._host_address}")
-                else:
-                    self._logger.info("Work item stream ended normally")
-                # When stream ends (SHUTDOWN_SENTINEL received), always break outer loop
-                # The stream reader has exited, so we should exit too, not reconnect
-                # This matches Go SDK behavior where stream ending causes the listener to exit
-                break
+                    break
+
+                # Stream ended without shutdown being requested - reconnect
+                self._logger.info(
+                    f"Work item stream ended. Will attempt to reconnect to {self._host_address}..."
+                )
+                invalidate_connection()
+                # Fall through to the top of the outer loop, which will
+                # create a fresh connection (with retry/backoff if needed)
             except grpc.RpcError as rpc_error:
+                await self._cancel_keepalive(keepalive_task)
                 # Check shutdown first - if shutting down, exit immediately
                 if self._shutdown.is_set():
                     self._logger.debug("Shutdown detected during RPC error handling, exiting")
@@ -661,33 +693,21 @@ class TaskHubGrpcWorker:
                 if should_invalidate:
                     invalidate_connection()
                 error_code = rpc_error.code()  # type: ignore
-                error_details = str(rpc_error)
+                error_detail = (
+                    rpc_error.details() if hasattr(rpc_error, "details") else str(rpc_error)
+                )
 
                 if error_code == grpc.StatusCode.CANCELLED:
                     self._logger.info(f"Disconnected from {self._host_address}")
                     break
-                elif error_code == grpc.StatusCode.UNAVAILABLE:
-                    # Check if this is a connection timeout scenario
-                    if (
-                        "Timeout occurred" in error_details
-                        or "Failed to connect to remote host" in error_details
-                    ):
-                        self._logger.warning(
-                            f"Connection timeout to {self._host_address}: {error_details} - will retry with fresh connection"
-                        )
-                    else:
-                        self._logger.warning(
-                            f"The sidecar at address {self._host_address} is unavailable: {error_details} - will continue retrying"
-                        )
                 elif should_invalidate:
                     self._logger.warning(
-                        f"Connection-level gRPC error ({error_code}): {rpc_error} - resetting connection"
+                        f"Connection error ({error_code}): {error_detail} — resetting connection"
                     )
                 else:
-                    self._logger.warning(
-                        f"Application-level gRPC error ({error_code}): {rpc_error}"
-                    )
+                    self._logger.warning(f"gRPC error ({error_code}): {error_detail}")
             except RuntimeError as ex:
+                await self._cancel_keepalive(keepalive_task)
                 # RuntimeError often indicates asyncio loop issues (e.g., "cannot schedule new futures after shutdown")
                 # Check shutdown state first
                 if self._shutdown.is_set():
@@ -711,6 +731,7 @@ class TaskHubGrpcWorker:
                 # it's likely shutdown-related. Break to prevent infinite retries.
                 break
             except Exception as ex:
+                await self._cancel_keepalive(keepalive_task)
                 if self._shutdown.is_set():
                     self._logger.debug(
                         f"Shutdown detected during exception handling, exiting: {ex}"
@@ -745,19 +766,46 @@ class TaskHubGrpcWorker:
         except Exception as e:
             self._logger.warning(f"Error while waiting for worker task shutdown: {e}")
 
+    def _schedule_deferred_channel_close(
+        self, old_channel: grpc.Channel, grace_timeout: float = 10.0
+    ):
+        """Schedule a deferred close of an old gRPC channel.
+
+        Waits up to *grace_timeout* seconds for in-flight RPCs to complete
+        before closing the channel.  This prevents orphaned TCP connections
+        while still allowing in-flight work (e.g. ``CompleteActivityTask``
+        calls on another thread) to finish gracefully.
+
+        During ``stop()``, ``_shutdown`` is already set so the wait returns
+        immediately and the channel is closed at once.
+        """
+        # Prune already-finished cleanup threads to avoid unbounded growth
+        self._channel_cleanup_threads = [t for t in self._channel_cleanup_threads if t.is_alive()]
+
+        def _deferred_close():
+            try:
+                # Normal reconnect: wait grace period for RPCs to drain.
+                # Shutdown: _shutdown is already set, returns immediately.
+                self._shutdown.wait(timeout=grace_timeout)
+            finally:
+                try:
+                    old_channel.close()
+                    self._logger.debug("Deferred channel close completed")
+                except Exception as e:
+                    self._logger.debug(f"Error during deferred channel close: {e}")
+
+        thread = threading.Thread(target=_deferred_close, daemon=True, name="ChannelCleanup")
+        thread.start()
+        self._channel_cleanup_threads.append(thread)
+
     def stop(self):
         """Stops the worker and waits for any pending work items to complete."""
         if not self._is_running:
             return
 
         self._logger.info("Stopping gRPC worker...")
-        if self._response_stream is not None:
-            try:
-                self._response_stream.close()
-            except Exception as e:
-                self._logger.exception(f"Error stopping response stream: {e}")
         self._shutdown.set()
-        # Explicitly close the gRPC channel to ensure OTel interceptors and other resources are cleaned up
+        # Close the channel — propagates cancellation to all streams and cleans up resources
         if self._current_channel is not None:
             try:
                 self._current_channel.close()
@@ -776,38 +824,39 @@ class TaskHubGrpcWorker:
             else:
                 self._logger.debug("Worker thread completed successfully")
 
+        # Wait for any deferred channel-cleanup threads to finish
+        for t in self._channel_cleanup_threads:
+            t.join(timeout=5)
+        self._channel_cleanup_threads.clear()
+
         self._async_worker_manager.shutdown()
         self._logger.info("Worker shutdown completed")
         self._is_running = False
 
     # TODO: This should be removed in the future as we do handle grpc errs
     def _handle_grpc_execution_error(self, rpc_error: grpc.RpcError, request_type: str):
-        """Handle a gRPC execution error during shutdown or benign condition."""
-        # During shutdown or if the instance was terminated, the channel may be close
-        # or the instance may no longer be recognized by the sidecar. Treat these as benign
-        # to reduce noisy logging when shutting down.
+        """Handle a gRPC execution error during shutdown or connection reset."""
         details = str(rpc_error).lower()
-        benign_errors = {
+        # These errors are transient — the sidecar will re-dispatch the work item.
+        transient_errors = {
             grpc.StatusCode.CANCELLED,
             grpc.StatusCode.UNAVAILABLE,
             grpc.StatusCode.UNKNOWN,
+            grpc.StatusCode.INTERNAL,
         }
-        if (
-            self._shutdown.is_set()
-            and rpc_error.code() in benign_errors
-            or (
-                "unknown instance id/task id combo" in details
-                or "channel closed" in details
-                or "locally cancelled by application" in details
-            )
-        ):
-            self._logger.debug(
-                f"Ignoring gRPC {request_type} execution error during shutdown/benign condition: {rpc_error}"
+        is_transient = rpc_error.code() in transient_errors
+        is_benign = (
+            "unknown instance id/task id combo" in details
+            or "channel closed" in details
+            or "locally cancelled by application" in details
+        )
+        if is_transient or is_benign or self._shutdown.is_set():
+            self._logger.warning(
+                f"Could not deliver {request_type} result ({rpc_error.code()}): "
+                f"{rpc_error.details() if hasattr(rpc_error, 'details') else rpc_error} — sidecar will re-dispatch"
             )
         else:
-            self._logger.exception(
-                f"Failed to execute gRPC {request_type} execution error: {rpc_error}"
-            )
+            self._logger.exception(f"Failed to deliver {request_type} result: {rpc_error}")
 
     def _execute_orchestrator(
         self,
@@ -881,6 +930,13 @@ class TaskHubGrpcWorker:
                     )
             else:
                 self._handle_grpc_execution_error(rpc_error, "orchestrator")
+        except ValueError:
+            # gRPC raises ValueError when the underlying channel has been closed (e.g. during reconnection).
+            self._logger.debug(
+                f"Could not deliver orchestrator response for '{req.instanceId}': "
+                f"channel was closed (likely due to reconnection). "
+                f"The sidecar will re-dispatch this work item."
+            )
         except Exception as ex:
             self._logger.exception(
                 f"Failed to deliver orchestrator response for '{req.instanceId}' to sidecar: {ex}"
@@ -896,13 +952,15 @@ class TaskHubGrpcWorker:
 
         if otel_tracer is not None:
             span_context = otel_tracer.start_as_current_span(
-                name=f'activity: {req.name}',
-                context=otel_propagator.extract(carrier={"traceparent": req.parentTraceContext.traceParent}),
+                name=f"activity: {req.name}",
+                context=otel_propagator.extract(
+                    carrier={"traceparent": req.parentTraceContext.traceParent}
+                ),
                 attributes={
                     "durabletask.task.instance_id": instance_id,
                     "durabletask.task.id": req.taskId,
                     "durabletask.activity.name": req.name,
-                }
+                },
             )
         else:
             span_context = contextlib.nullcontext()
@@ -910,7 +968,9 @@ class TaskHubGrpcWorker:
         with span_context:
             try:
                 executor = _ActivityExecutor(self._registry, self._logger)
-                result = executor.execute(instance_id, req.name, req.taskId, req.input.value)
+                result = executor.execute(
+                    instance_id, req.name, req.taskId, req.input.value, req.taskExecutionId
+                )
                 res = pb.ActivityResponse(
                     instanceId=instance_id,
                     taskId=req.taskId,
@@ -952,6 +1012,13 @@ class TaskHubGrpcWorker:
                         )
                 else:
                     self._handle_grpc_execution_error(rpc_error, "activity")
+            except ValueError:
+                # gRPC raises ValueError when the underlying channel has been closed (e.g. during reconnection).
+                self._logger.debug(
+                    f"Could not deliver activity response for '{req.name}#{req.taskId}' of "
+                    f"orchestration ID '{instance_id}': channel was closed (likely due to "
+                    f"reconnection). The sidecar will re-dispatch this work item."
+                )
             except Exception as ex:
                 self._logger.exception(
                     f"Failed to deliver activity response for '{req.name}#{req.taskId}' of orchestration ID '{instance_id}' to sidecar: {ex}"
@@ -1129,10 +1196,17 @@ class _RuntimeOrchestrationContext(
     def is_replaying(self) -> bool:
         return self._is_replaying
 
-    def set_custom_status(self, custom_status: Any) -> None:
-        self._encoded_custom_status = (
-            shared.to_json(custom_status) if custom_status is not None else None
-        )
+    def set_custom_status(self, custom_status: str) -> None:
+        if custom_status is not None and not isinstance(custom_status, str):
+            warnings.warn(
+                "Passing a non-str value to set_custom_status is deprecated and will be "
+                "removed in a future version. Serialize your value to a JSON string before calling.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._encoded_custom_status = shared.to_json(custom_status)
+        else:
+            self._encoded_custom_status = custom_status
 
     def create_timer(self, fire_at: Union[datetime, timedelta]) -> task.Task:
         return self.create_timer_internal(fire_at)
@@ -1163,9 +1237,16 @@ class _RuntimeOrchestrationContext(
         app_id: Optional[str] = None,
     ) -> task.Task[TOutput]:
         id = self.next_sequence_number()
+        task_execution_id = str(self.new_guid())
 
         self.call_activity_function_helper(
-            id, activity, input=input, retry_policy=retry_policy, is_sub_orch=False, app_id=app_id
+            id,
+            activity,
+            input=input,
+            retry_policy=retry_policy,
+            is_sub_orch=False,
+            app_id=app_id,
+            task_execution_id=task_execution_id,
         )
         return self._pending_tasks.get(id, task.CompletableTask())
 
@@ -1205,6 +1286,7 @@ class _RuntimeOrchestrationContext(
         instance_id: Optional[str] = None,
         fn_task: Optional[task.CompletableTask[TOutput]] = None,
         app_id: Optional[str] = None,
+        task_execution_id: str = "",
     ):
         if id is None:
             id = self.next_sequence_number()
@@ -1218,16 +1300,17 @@ class _RuntimeOrchestrationContext(
         if fn_task is None:
             encoded_input = shared.to_json(input) if input is not None else None
         else:
-            # Here, we don't need to convert the input to JSON because it is already converted.
-            # We just need to take string representation of it.
-            encoded_input = str(input)
+            # When retrying, input is already encoded as a string (or None).
+            encoded_input = str(input) if input is not None else None
         if not is_sub_orch:
             name = (
                 activity_function
                 if isinstance(activity_function, str)
                 else task.get_name(activity_function)
             )
-            action = ph.new_schedule_task_action(id, name, encoded_input, router)
+            action = ph.new_schedule_task_action(
+                id, name, encoded_input, router, task_execution_id=task_execution_id
+            )
         else:
             if instance_id is None:
                 # Create a deteministic instance ID based on the parent instance ID
@@ -1245,9 +1328,13 @@ class _RuntimeOrchestrationContext(
             else:
                 fn_task = task.RetryableTask[TOutput](
                     retry_policy=retry_policy,
-                    action=action,
                     start_time=self.current_utc_datetime,
                     is_sub_orch=is_sub_orch,
+                    task_name=name if not is_sub_orch else activity_function,
+                    encoded_input=encoded_input,
+                    task_execution_id=task_execution_id,
+                    instance_id=instance_id,
+                    app_id=app_id,
                 )
         self._pending_tasks[id] = fn_task
 
@@ -1467,28 +1554,18 @@ class _OrchestrationExecutor:
                     return
                 timer_task.complete(None)
                 if timer_task._retryable_parent is not None:
-                    activity_action = timer_task._retryable_parent._action
-
-                    if not timer_task._retryable_parent._is_sub_orch:
-                        cur_task = activity_action.scheduleTask
-                        instance_id = None
-                    else:
-                        cur_task = activity_action.createSubOrchestration
-                        instance_id = cur_task.instanceId
-                    if cur_task.router and cur_task.router.targetAppID:
-                        target_app_id = cur_task.router.targetAppID
-                    else:
-                        target_app_id = None
+                    retryable = timer_task._retryable_parent
 
                     ctx.call_activity_function_helper(
-                        id=activity_action.id,
-                        activity_function=cur_task.name,
-                        input=cur_task.input.value,
-                        retry_policy=timer_task._retryable_parent._retry_policy,
-                        is_sub_orch=timer_task._retryable_parent._is_sub_orch,
-                        instance_id=instance_id,
-                        fn_task=timer_task._retryable_parent,
-                        app_id=target_app_id,
+                        id=None,  # Get a new sequence number
+                        activity_function=retryable._task_name,
+                        input=retryable._encoded_input,
+                        retry_policy=retryable._retry_policy,
+                        is_sub_orch=retryable._is_sub_orch,
+                        instance_id=retryable._instance_id,
+                        fn_task=retryable,
+                        app_id=retryable._app_id,
+                        task_execution_id=retryable._task_execution_id,
                     )
                 else:
                     ctx.resume()
@@ -1720,6 +1797,7 @@ class _ActivityExecutor:
         name: str,
         task_id: int,
         encoded_input: Optional[str],
+        task_execution_id: str = "",
     ) -> Optional[str]:
         """Executes an activity function and returns the serialized result, if any."""
         self._logger.debug(f"{orchestration_id}/{task_id}: Executing activity '{name}'...")
@@ -1730,7 +1808,7 @@ class _ActivityExecutor:
             )
 
         activity_input = shared.from_json(encoded_input) if encoded_input else None
-        ctx = task.ActivityContext(orchestration_id, task_id)
+        ctx = task.ActivityContext(orchestration_id, task_id, task_execution_id)
 
         # Execute the activity function
         activity_output = fn(ctx, activity_input)

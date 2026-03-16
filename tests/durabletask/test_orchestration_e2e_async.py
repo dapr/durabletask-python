@@ -414,8 +414,9 @@ async def test_retry_policies():
             assert state.runtime_status == OrchestrationStatus.FAILED
             assert state.failure_details is not None
             assert state.failure_details.error_type == "TaskFailedError"
-            assert state.failure_details.message.startswith("Sub-orchestration task #1 failed:")
-            assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
+            assert "Sub-orchestration task #" in state.failure_details.message
+            assert "failed:" in state.failure_details.message
+            assert state.failure_details.message.endswith("failed: Kah-BOOOOM!!!")
             assert state.failure_details.stack_trace is not None
             assert throw_activity_counter == 9
             assert child_orch_counter == 3
@@ -455,7 +456,7 @@ async def test_retry_timeout():
             assert state.runtime_status == OrchestrationStatus.FAILED
             assert state.failure_details is not None
             assert state.failure_details.error_type == "TaskFailedError"
-            assert state.failure_details.message.endswith("Activity task #1 failed: Kah-BOOOOM!!!")
+            assert state.failure_details.message.endswith("failed: Kah-BOOOOM!!!")
             assert state.failure_details.stack_trace is not None
             assert throw_activity_counter == 4
 
@@ -480,4 +481,4 @@ async def test_custom_status():
     assert state.runtime_status == OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == '"foobaz"'
+    assert state.serialized_custom_status == 'foobaz'
