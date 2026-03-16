@@ -165,6 +165,7 @@ def test_registry_add_multiple_activities():
     assert registry.get_activity(name1) is activity1
     assert registry.get_activity(name2) is activity2
 
+
 def test_registry_add_named_versioned_orchestrators():
     """Test adding versioned orchestrators."""
     registry = worker._Registry()
@@ -179,7 +180,9 @@ def test_registry_add_named_versioned_orchestrators():
         return "two"
 
     registry.add_named_orchestrator(name="orchestrator", fn=orchestrator1, version_name="v1")
-    registry.add_named_orchestrator(name="orchestrator", fn=orchestrator2, version_name="v2", is_latest=True)
+    registry.add_named_orchestrator(
+        name="orchestrator", fn=orchestrator2, version_name="v2", is_latest=True
+    )
     registry.add_named_orchestrator(name="orchestrator", fn=orchestrator3, version_name="v3")
 
     orquestrator, version = registry.get_orchestrator(name="orchestrator")
