@@ -201,6 +201,15 @@ class ActivityNotRegisteredError(ValueError):
     pass
 
 
+def _is_message_too_large(rpc_error: grpc.RpcError) -> bool:
+    """Return True if the gRPC error is RESOURCE_EXHAUSTED.
+
+    All RESOURCE_EXHAUSTED errors are treated as a permanent message-size violation
+    so the sidecar always receives an acknowledgment and avoids infinite redelivery.
+    """
+    return rpc_error.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
+
+
 # TODO: refactor this to closely match durabletask-go/client/worker_grpc.go instead of this.
 class TaskHubGrpcWorker:
     """A gRPC-based worker for processing durable task orchestrations and activities.
@@ -890,7 +899,34 @@ class TaskHubGrpcWorker:
         try:
             stub.CompleteOrchestratorTask(res)
         except grpc.RpcError as rpc_error:  # type: ignore
-            self._handle_grpc_execution_error(rpc_error, "orchestrator")
+            if _is_message_too_large(rpc_error):
+                # Response is too large to deliver - fail the orchestration immediately.
+                # This can only be fixed with infrastructure changes (increasing gRPC max message size).
+                self._logger.error(
+                    f"Orchestrator response for '{req.instanceId}' is too large to deliver "
+                    f"(RESOURCE_EXHAUSTED). Failing the orchestration task: {rpc_error.details()}"
+                )
+                failure_actions = [
+                    ph.new_complete_orchestration_action(
+                        -1, pb.ORCHESTRATION_STATUS_FAILED, "",
+                        ph.new_failure_details(RuntimeError(
+                            f"Orchestrator response exceeds gRPC max message size: {rpc_error.details()}"
+                        ))
+                    )
+                ]
+                failure_res = pb.OrchestratorResponse(
+                    instanceId=req.instanceId,
+                    actions=failure_actions,
+                    completionToken=completionToken,
+                )
+                try:
+                    stub.CompleteOrchestratorTask(failure_res)
+                except Exception as ex:
+                    self._logger.exception(
+                        f"Failed to deliver orchestrator failure response for '{req.instanceId}': {ex}"
+                    )
+            else:
+                self._handle_grpc_execution_error(rpc_error, "orchestrator")
         except ValueError:
             # gRPC raises ValueError when the underlying channel has been closed (e.g. during reconnection).
             self._logger.debug(
@@ -949,7 +985,30 @@ class TaskHubGrpcWorker:
             try:
                 stub.CompleteActivityTask(res)
             except grpc.RpcError as rpc_error:  # type: ignore
-                self._handle_grpc_execution_error(rpc_error, "activity")
+                if _is_message_too_large(rpc_error):
+                    # Result is too large to deliver - fail the activity immediately.
+                    # This can only be fixed with infrastructure changes (increasing gRPC max message size).
+                    self._logger.error(
+                        f"Activity '{req.name}#{req.taskId}' result is too large to deliver "
+                        f"(RESOURCE_EXHAUSTED). Failing the activity task: {rpc_error.details()}"
+                    )
+                    failure_res = pb.ActivityResponse(
+                        instanceId=instance_id,
+                        taskId=req.taskId,
+                        failureDetails=ph.new_failure_details(RuntimeError(
+                            f"Activity result exceeds gRPC max message size: {rpc_error.details()}"
+                        )),
+                        completionToken=completionToken,
+                    )
+                    try:
+                        stub.CompleteActivityTask(failure_res)
+                    except Exception as ex:
+                        self._logger.exception(
+                            f"Failed to deliver activity failure response for '{req.name}#{req.taskId}' "
+                            f"of orchestration ID '{instance_id}': {ex}"
+                        )
+                else:
+                    self._handle_grpc_execution_error(rpc_error, "activity")
             except ValueError:
                 # gRPC raises ValueError when the underlying channel has been closed (e.g. during reconnection).
                 self._logger.debug(
