@@ -31,7 +31,7 @@ TOutput = TypeVar("TOutput")
 # If `opentelemetry-sdk` is available, enable the tracer
 try:
     from opentelemetry import trace
-    from opentelemetry.trace.propagation.tracecontext TraceContextTextMapPropagator
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
     otel_propagator = TraceContextTextMapPropagator()
     otel_tracer = trace.get_tracer(__name__)
@@ -207,9 +207,13 @@ def _is_message_too_large(rpc_error: grpc.RpcError) -> bool:
     RESOURCE_EXHAUSTED is also used for rate limiting / quota errors, which are transient and
     should not be treated the same as a permanent message-size violation.
     """
+    if rpc_error.code() != grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return False
+    details = (rpc_error.details() or "").lower()
     return (
-        rpc_error.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
-        and "received message larger than max" in (rpc_error.details() or "").lower()
+        "message larger than max" in details
+        or "received message larger than max" in details
+        or "sent message larger than max" in details
     )
 
 
