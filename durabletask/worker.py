@@ -503,10 +503,7 @@ class TaskHubGrpcWorker:
             try:
                 assert current_stub is not None
                 stub = current_stub
-                get_work_items_request = pb.GetWorkItemsRequest(
-                    maxConcurrentOrchestrationWorkItems=self._concurrency_options.maximum_concurrent_orchestration_work_items,
-                    maxConcurrentActivityWorkItems=self._concurrency_options.maximum_concurrent_activity_work_items,
-                )
+                get_work_items_request = pb.GetWorkItemsRequest()
                 try:
                     self._response_stream = stub.GetWorkItems(get_work_items_request)
                     self._logger.info(
