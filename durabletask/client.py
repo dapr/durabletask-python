@@ -47,6 +47,28 @@ class OrchestrationStatus(Enum):
         return helpers.get_orchestration_status_str(self.value)
 
 
+class OrchestrationIdReuseAction(Enum):
+    """Action to take when scheduling an orchestration whose ID already exists."""
+
+    ERROR = pb.ERROR
+    IGNORE = pb.IGNORE
+    TERMINATE = pb.TERMINATE
+
+
+@dataclass
+class OrchestrationIdReusePolicy:
+    """Policy controlling what happens when a new orchestration is scheduled with an ID that already exists."""
+
+    action: OrchestrationIdReuseAction
+    operation_status: list[OrchestrationStatus]
+
+    def _to_pb(self) -> pb.OrchestrationIdReusePolicy:
+        return pb.OrchestrationIdReusePolicy(
+            operationStatus=[s.value for s in self.operation_status],
+            action=self.action.value,
+        )
+
+
 @dataclass
 class OrchestrationState:
     instance_id: str
@@ -166,7 +188,7 @@ class TaskHubGrpcClient:
         input: Optional[TInput] = None,
         instance_id: Optional[str] = None,
         start_at: Optional[datetime] = None,
-        reuse_id_policy: Optional[pb.OrchestrationIdReusePolicy] = None,
+        reuse_id_policy: Optional[OrchestrationIdReusePolicy] = None,
     ) -> str:
         name = orchestrator if isinstance(orchestrator, str) else task.get_name(orchestrator)
 
@@ -180,7 +202,7 @@ class TaskHubGrpcClient:
             input=input_pb,
             scheduledStartTimestamp=helpers.new_timestamp(start_at) if start_at else None,
             version=wrappers_pb2.StringValue(value=""),
-            orchestrationIdReusePolicy=reuse_id_policy,
+            orchestrationIdReusePolicy=reuse_id_policy._to_pb() if reuse_id_policy else None,
         )
 
         self._logger.info(f"Starting new '{name}' instance with ID = '{req.instanceId}'.")
