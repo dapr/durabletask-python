@@ -19,7 +19,7 @@ import grpc
 from google.protobuf import empty_pb2
 
 import durabletask.internal.helpers as ph
-import durabletask.internal.orchestrator_service_pb2 as pb
+import durabletask.internal.protos as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import deterministic, task
@@ -908,10 +908,14 @@ class TaskHubGrpcWorker:
                 )
                 failure_actions = [
                     ph.new_complete_orchestration_action(
-                        -1, pb.ORCHESTRATION_STATUS_FAILED, "",
-                        ph.new_failure_details(RuntimeError(
-                            f"Orchestrator response exceeds gRPC max message size: {rpc_error.details()}"
-                        ))
+                        -1,
+                        pb.ORCHESTRATION_STATUS_FAILED,
+                        "",
+                        ph.new_failure_details(
+                            RuntimeError(
+                                f"Orchestrator response exceeds gRPC max message size: {rpc_error.details()}"
+                            )
+                        ),
                     )
                 ]
                 failure_res = pb.OrchestratorResponse(
@@ -995,9 +999,11 @@ class TaskHubGrpcWorker:
                     failure_res = pb.ActivityResponse(
                         instanceId=instance_id,
                         taskId=req.taskId,
-                        failureDetails=ph.new_failure_details(RuntimeError(
-                            f"Activity result exceeds gRPC max message size: {rpc_error.details()}"
-                        )),
+                        failureDetails=ph.new_failure_details(
+                            RuntimeError(
+                                f"Activity result exceeds gRPC max message size: {rpc_error.details()}"
+                            )
+                        ),
                         completionToken=completionToken,
                     )
                     try:

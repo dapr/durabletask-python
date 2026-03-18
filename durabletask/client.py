@@ -12,7 +12,7 @@ import grpc
 from google.protobuf import wrappers_pb2
 
 import durabletask.internal.helpers as helpers
-import durabletask.internal.orchestrator_service_pb2 as pb
+import durabletask.internal.protos as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
 import durabletask.internal.shared as shared
 from durabletask import task

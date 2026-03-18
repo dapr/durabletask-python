@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Generator, Generic, Optional, TypeVar, Union
 
 import durabletask.internal.helpers as pbh
-import durabletask.internal.orchestrator_service_pb2 as pb
+import durabletask.internal.protos as pb
 
 T = TypeVar("T")
 TInput = TypeVar("TInput")
