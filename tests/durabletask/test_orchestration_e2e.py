@@ -594,7 +594,7 @@ def test_custom_status():
     assert state.runtime_status == client.OrchestrationStatus.COMPLETED
     assert state.serialized_input is None
     assert state.serialized_output is None
-    assert state.serialized_custom_status == 'foobaz'
+    assert state.serialized_custom_status == "foobaz"
 
 
 def test_now_with_sequence_ordering():
