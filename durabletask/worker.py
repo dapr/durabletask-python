@@ -19,8 +19,8 @@ import grpc
 from google.protobuf import empty_pb2
 
 import durabletask.internal.helpers as ph
-import durabletask.internal.protos as pb
 import durabletask.internal.orchestrator_service_pb2_grpc as stubs
+import durabletask.internal.protos as pb
 import durabletask.internal.shared as shared
 from durabletask import deterministic, task
 from durabletask.internal.grpc_interceptor import DefaultClientInterceptorImpl
